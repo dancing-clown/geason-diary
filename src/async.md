@@ -27,7 +27,8 @@ fn main() {
 ### 2. async/await
 
 async 标识符标注当前函数为异步函数，异步函数允许你像编写同步代码一样编写代码，同时在底层仍然支持真正的异步行为。
-await 函数则表示等待并接受异步执行的结果，它只能在异步函数中使用。当当前的future未完成时，也会让出线程，提供给其他任务使用；本质上是建立两两future之间的依赖关系，A调用B.await实际就是A以来B执行完成
+
+await 函数则表示等待并接受异步执行的结果，它只能在异步函数中使用。当当前的future未完成时，也会让出线程，提供给其他任务使用；本质上是建立两两future之间的依赖关系，A调用B.await实际就是A依赖B执行完成，B执行完成后，A才会继续执行。
 
 ```rust,edition2024,dependencies=tokio@0.3.28
 use tokio::net::TcpStream;
