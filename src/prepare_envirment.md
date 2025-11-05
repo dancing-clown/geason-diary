@@ -53,11 +53,9 @@ bcdedit /set hypervisorlauchtype auto
 执行命令如下安装指令，采用国内rustup更快
 
 ```shell
-curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf > rustup.sh
-chmod +x rustup.sh
 export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
 export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
-sh rustup.sh
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 ```
 
 根据脚本提示，完成安装即可。
@@ -102,6 +100,10 @@ Error Lens //更好的获取错误展示
 One Dark Pro // VSCode主题
 
 CodeLLDB // Debugger程序
+
+RISC-V Debugger // 交叉编译使用
+
+MarkDownLint // 编写markdown的lint语法检查
 
 ### rustup更新
 
