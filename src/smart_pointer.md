@@ -101,6 +101,8 @@ fn main() {
 
 ### `Rc<T>`
 
+单线程引用计数，实际编码中没有使用过。
+
 ```rust,edition2024
 use std::rc::Rc;
 
@@ -111,6 +113,119 @@ struct Node {
 }
 
 fn main() {
-    let leaf = Rc::new
+    let leaf = Rc::new(Node {
+        value: 1,
+        children: vec![],
+    });
+    let branch = Rc::new(Node {
+        value: 2,
+        children: vec![Rc::clone(&leaf)],
+    });
 }
+```
+
+### `RefCell<T>`
+
+通过`UnsafeCell<T>` + 两个计数器(borrow_flag)用于记录当前是不可变借用还是可变借用，运行时检查计数是否为0；
+冲突会panic以此来模拟编译期的借用检查。通常用于惰性缓存、内部状态机。
+
+```rust,edition2024
+use std::cell::RefCell;
+
+fn main() {
+    let data = RefCell::new(5);
+
+    // 不可变借用
+    let r1 = data1.borrow();
+    let r2 = data2.borrow();
+    println!("r1 = {}, r2 = {}", r1, r2);
+    drop(r1);
+    drop(r2);
+
+    // 可变借用
+    let mut r3 = data.borrow_mut();
+    *r3 += 1;
+    println!("r3 = {}", r3);
+    drop(r3);
+
+    let r4 = data.borrow();
+    // ❌ 运行时panic
+    // let r5 = data.borrow_mut(); // panic
+    let r5 = data.try_borrow_mut();
+    match r5 {
+        Ok(mut r5) => {
+            *r5 += 1;
+            println!("r5 = {}", r5);
+        }
+        Err(_) => {
+            println!("r5 borrow_mut failed");
+        }
+    }
+}
+
+```
+
+## 如何选择
+
+可以参考该图选择合适的智能指针。
+![智能指针选择图](./images/decision_tree.png)
+资料参考[Smart Pointers](https://doc.rust-lang.org/book/ch15-00-smart-pointers.html)
+
+## 其他
+
+关于智能指针，C++里会经常见到`std::move`, `std::forward`等操作。
+
+### 引入规则
+
+#### 规则1(引用折叠原则)：如果间接的创建一个引用的引用，则这些引用会折叠
+
+- 一般情况下，引用折叠成一个普通的左值引用类型
+  - `X& &`\ `X& &&`\ `X&& &` 转换为`X&`（带引用就是左值）
+  - `X&& &&` 转换为`X&&`
+
+#### 规则2(值类别转换原则)：当将一个左值传递给一个参数是右值引用的函数，且此右值引用指向模板类型参数(`T&&`)时，编译器推断该模板参数类型为实参的左值引用
+
+```C++
+template<typename T>
+void f(T&&);
+int i = 42;
+f(i);
+```
+
+上述模板参数类型T推断为int&类型，而非int。
+
+#### 规则3：可通过static_cast显示转换左值到右值
+
+`move`函数就是将对应参数转为右值，标准库中`move`定义如下：
+
+```C++
+template<typename T>
+// 根据规则2，可以接受左值和右值
+typename remove_reference<T>::type &&move(T&& t) {
+    // 如果是右值，则直接返回右值引用
+    // 根据规则3，如果是左值，则通过static_cast转换为右值引用
+    return static_cast<typename remove_reference<T>::type &&>(t);
+}
+```
+
+`forward`又叫完美转发，标准库中`foward`（完美转发）实现如下：
+
+```C++
+template<typename _Tp>
+    constexpr _Tp&&
+    // 这里就是只接受左值引用
+    forward(typename std::remove_reference<_Tp>::type& __t) noexcept
+    // 左值引用&&推导最终还是左值
+    { return static_cast<_Tp&&>(__t); }
+
+template<typename _Tp>
+    constexpr _Tp&&
+    // 这里就只接受右值
+    forward(typename std::remove_reference<_Tp>::type&& __t) noexcept
+    {
+        // 如果收到了左值，会编译期报错
+        static_assert(!std::is_lvalue_reference<_Tp>::value, "template argument substituting _Tp is an lvalue reference type");
+        return static_cast<_Tp&&>(__t);
+    }
+
 ```
