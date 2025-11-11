@@ -356,7 +356,7 @@ int main()
 
 最后，也是因为展开后，提高了每个时钟周期并行执行指令的条数。
 
-关于优化参数O0-O3做一个补充说明。
+关于优化参数O0-O3做一个补充说明。参考链接[Options That Control Optimization](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html)
 
 |优化类型|说明|典型优化级别|
 |---|---|---|
@@ -368,13 +368,139 @@ int main()
 
 O0: 调试模式，保留所有调试信息和源代码执行顺序，禁用所有优化，编译速度快
 
-O1: 基础优化，死代码消除，跳转线程化，基本循环优化，寄存器分配优化
+O1: 编译器在不增加编译时间即不影响编译速度的情况下，减少可执行程序代码大小和代码执行时间。常见的有：基础优化，死代码消除，跳转线程化，基本循环优化，寄存器分配优化。相关优化参数如下所示。
 
-O2: 函数内联，指令重排，尾部调用优化，常量传播，循环展开
+```shell
+-fauto-inc-dec
+-fbranch-count-reg 
+-fcombine-stack-adjustments 
+-fcompare-elim 
+-fcprop-registers 
+-fdce 
+-fdefer-pop 
+-fdelayed-branch 
+-fdse 
+-fforward-propagate 
+-fguess-branch-probability 
+-fif-conversion 
+-fif-conversion2 
+-finline-functions-called-once 
+-fipa-modref 
+-fipa-profile 
+-fipa-pure-const 
+-fipa-reference 
+-fipa-reference-addressable 
+-fmerge-constants 
+-fmove-loop-invariants 
+-fmove-loop-stores
+-fomit-frame-pointer 
+-freorder-blocks 
+-fshrink-wrap 
+-fshrink-wrap-separate 
+-fsplit-wide-types 
+-fssa-backprop 
+-fssa-phiopt 
+-ftree-bit-ccp 
+-ftree-ccp 
+-ftree-ch 
+-ftree-coalesce-vars 
+-ftree-copy-prop 
+-ftree-dce 
+-ftree-dominator-opts 
+-ftree-dse 
+-ftree-forwprop 
+-ftree-fre 
+-ftree-phiprop 
+-ftree-pta 
+-ftree-scev-cprop 
+-ftree-sink 
+-ftree-slsr 
+-ftree-sra 
+-ftree-ter 
+-funit-at-a-time
+```
 
-O3: 自动向量化(SIMD)，函数间优化(IPO)，循环展开，预测执行优化
+O2: 相对于O1进一步优化，会增加编译时间（牺牲编译速度）以及进一步降低代码运行时间。常见的有：函数内联，指令重排，尾部调用优化，常量传播，循环展开。-O2选项除了开启-O1的所有优化标志外，还会开启以下优化标志：
 
-Os: 尺寸优化，减少代码体积，禁用增加体积的优化。
+```shell
+-falign-functions  -falign-jumps 
+-falign-labels  -falign-loops 
+-fcaller-saves 
+-fcode-hoisting 
+-fcrossjumping 
+-fcse-follow-jumps  -fcse-skip-blocks 
+-fdelete-null-pointer-checks 
+-fdevirtualize  -fdevirtualize-speculatively 
+-fexpensive-optimizations 
+-ffinite-loops 
+-fgcse  -fgcse-lm  
+-fhoist-adjacent-loads 
+-finline-functions 
+-finline-small-functions 
+-findirect-inlining 
+-fipa-bit-cp  -fipa-cp  -fipa-icf 
+-fipa-ra  -fipa-sra  -fipa-vrp 
+-fisolate-erroneous-paths-dereference 
+-flra-remat 
+-foptimize-sibling-calls 
+-foptimize-strlen 
+-fpartial-inlining 
+-fpeephole2 
+-freorder-blocks-algorithm=stc 
+-freorder-blocks-and-partition  -freorder-functions 
+-frerun-cse-after-loop  
+-fschedule-insns  -fschedule-insns2 
+-fsched-interblock  -fsched-spec 
+-fstore-merging 
+-fstrict-aliasing 
+-fthread-jumps 
+-ftree-builtin-call-dce 
+-ftree-loop-vectorize 
+-ftree-pre 
+-ftree-slp-vectorize 
+-ftree-switch-conversion  -ftree-tail-merge 
+-ftree-vrp 
+-fvect-cost-model=very-cheap
+```
+
+O3: 进一步优化，一般都是采取很多向量化算法，提高代码的并行执行程度，利用现代CPU中的流水线，Cache等。常见的有自动向量化(SIMD)，函数间优化(IPO)，循环展开，预测执行优化。
+
+```bash
+-fgcse-after-reload 
+-fipa-cp-clone 
+-floop-interchange 
+-floop-unroll-and-jam 
+-fpeel-loops 
+-fpredictive-commoning
+-fsplit-loops 
+-fsplit-paths 
+-ftree-loop-distribution 
+-ftree-partial
+-pre 
+-funswitch-loops 
+-fvect-cost-model=dynamic 
+-fversion-loops-for-strides
+```
+
+Ofast: 除了O3外，也会针对某些语言启用部分优化。如：-ffast-math ，-fallow-store-data-races，和特定于Fortan语言的-fstack-arrays标志，除非 -fmax-stack-var-size和-fno-protect-parens被指定。-Ofast主要是牺牲兼容性来获取更快的运行速度。
+
+Os: 尺寸优化，减少代码体积，禁用增加体积的优化。和O2差不多，但不包含以下指令。
+
+```bash
+-falign-functions -falign-jumps 
+-falign-labels -falign-loops 
+-fprefetch-loop-arrays -freorder-blocks-algorithm=stc
+```
+
+Og: 在快速编译和可调试之间保持了一个合理的优化策略，沿用-O1,但是不包含对O1中对调试信息产生影响的标志。
+
+```shell
+-fbranch-count-reg -fdelayed-branch 
+-fdse -fif-conversion -fif-conversion2   
+-finline-functions-called-once 
+-fmove-loop-invariants -fmove-loop-stores -fssa-phiopt 
+-ftree-bit-ccp -ftree-dse -ftree-pta -ftree-sra
+```
 
 3.预取操作
 

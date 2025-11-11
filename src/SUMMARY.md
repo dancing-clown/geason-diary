@@ -12,3 +12,5 @@
 - [第六章 Rust/C++ 智能指针](./smart_pointer.md)
 - [第七章 原子操作](./atomic.md)
 - [第八章 性能调优案例](./performance_tuning.md)
+- [第九章 Aeron](./aeron.md)
+- [第十章 FFI](./foreign_function_interface.md)
