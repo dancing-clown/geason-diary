@@ -18,3 +18,5 @@
 - [第十二章 protobuf in Rust](./protobuf.md)
 - [第十三章 池化案例](./pool_case.md)
 - [第十四章 Redis](./redis.md)
+- [第十五章 Kafka](./kafka.md)
+- [第十六章 Data Structure](./data_structure.md)
