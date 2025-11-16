@@ -33,22 +33,27 @@ BIO (Blocking I/O)：同步并阻塞模式。调用方发起IO操作时会阻塞
 
 NIO (Non-blocking I/O)：将连接请求都注册到`select`多路复用器上，然后`select`会轮询这些连接，当查询到连接上有IO活动就进行处理。数据总是从通道读取到缓冲区或从缓冲区写入通道；`select`会监听多个通道上的事件（收到连接请求、数据到达等等），因此可以使用一个线程来监听多个客户端通道。
 
-select:基于位图轮询所有fd，监控数量1024.
+IO多路复用（I/O Multiplexing）：通过一个线程监听多个文件描述符上的事件，当其中任意一个文件描述符就绪时，就可以进行相应的IO操作。
 
-poll:结构体数组代替位图，解决fd数量限制。
+- select:基于位图轮询所有fd，监控数量1024.
 
-epoll:通过epoll_create创建内核事件表，epoll_ctl动态管理fd, epoll_wait仅返回就绪事件，避免无效遍历；但是如果没有高并发效率可能并不一定优于select/poll。
+- poll:结构体数组代替位图，解决fd数量限制。
+
+- epoll:通过epoll_create创建内核事件表，epoll_ctl动态管理fd, epoll_wait仅返回就绪事件，避免无效遍历；但是如果没有高并发效率可能并不一定优于select/poll。
 
 epoll触发模式（内核回调）
 
-- LT(电平触发)：fd缓冲区非空非满持续通知，方便确保数据完整性。
-- ET(边沿触发)：仅在缓冲区变化时通知一次，需一次性完成数据处理。无需频繁调用epoll_ctl。
+- LT(电平触发)：fd缓冲区非空非满持续通知，方便确保数据完整性。(Nginx的acceptor)
+- ET(边沿触发)：仅在缓冲区变化时通知一次，需一次性完成数据处理。无需频繁调用epoll_ctl。（nginx的reactor）
+
+信号驱动IO模型（Signal-Driven I/O）：应用程序注册一个信号处理函数，当IO操作就绪时，发送一个信号通知应用程序。应用程序在信号处理函数中进行IO操作。目前仅在处理父子进程中用过此类模型。
 
 AIO（Asynchronous I/O）:异步非阻塞模型，基于事件回调或Future机制。发起IO请求后，无需等待操作完成，可以执行其他任务。操作系统在IO操作完成后，通过回调或事件通知的方式告知调用方。
 
 ### 零拷贝技术
 
 不需要将数据buffer从一个内核区域拷贝到另一个内存区域，从而提高CPU效率。可以通过
+
 - mmap+write;
 - sendfile;
 - 带有DMA收集拷贝功能的sendfile[零拷贝详解](https://cloud.tencent.com/developer/article/1922497)

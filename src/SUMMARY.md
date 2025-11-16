@@ -17,3 +17,4 @@
 - [第十一章 低延迟技术](./low_latency_tech.md)
 - [第十二章 protobuf in Rust](./protobuf.md)
 - [第十三章 池化案例](./pool_case.md)
+- [第十四章 Redis](./redis.md)
