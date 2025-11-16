@@ -253,10 +253,6 @@ public:
         return res;
     }
 
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
     /** 返回线程池结束状态 */
     bool done() const {
         return m_done;
@@ -434,9 +430,69 @@ private:
 
 ```
 
-(TODO)下面是rust版本的任务窃取队列实现
+Rust相对而言已经有比较成熟的[`crossbeam::deque`](https://docs.rs/crossbeam/latest/crossbeam/deque/index.html)
+实现的步骤也是和以上实现类似的:
+
+- 从本地线程队列中获取单个任务；
+
+- 从全局队列中窃取一组任务；
+
+- 从从其他线程中窃取单个任务。
 
 ```rust,edition2024
+use crossbeam::deque::{Injector, Stealer, Worker};
+use std::iter;
+
+//此部分代码参考demo，main为个人实现
+fn find_task<T>(
+    local: &Worker<T>,
+    global: &Injector<T>,
+    stealers: &[Stealer<T>],
+) -> Option<T> {
+    // 尝试从
+    local.pop().or_else(|| {
+        iter::repeat_with(|| {
+            // 尝试从全局队列中窃取一组任务
+            global.steal_batch_and_pop(local)
+                // 尝试从其他线程中获取一个任务
+                .or_else(|| stealers.iter().map(|s| s.steal()).collect())
+        })
+        // 循环执行到没有可窃取任务
+        .find(|s| !s.is_retry())
+        // 提取窃取任务
+        .and_then(|s| s.success())
+    })
+}
+
+fn main() {
+    // 当前任务为打印任务信息，Task = i32
+    let global: Injector<i32> = Injector::new();
+    let worker_num = 4;
+
+    let mut locals: Vec<Worker<i32>> = (0..worker_num).map(|_| Worker::new_fifo()).collect();
+    let stealers: Vec<Stealer<i32>> = locals.iter().map(|w| w.stealer()).collect();
+
+    for i in 0..worker_num {
+        let local = std::mem::take(&mut locals[i]);
+        let global_clone = global.clone();
+        let others: Vec<Stealer<i32>> = stealers
+            .iter()
+            .enumerate()
+            .filter_map(|(j, s)| if j != i { Some(s.clone()) } else { None })
+            .collect();
+
+        std::thread::spawn(move || {
+            loop {
+                if let Some(task) = find_task(&local, &global_clone, &others) {
+                    // 处理任务
+                } else {
+                    // 如果希望任务一直运行，这里可以不yield，但是相应会提升CPU空转
+                    std::thread::yield_now();
+                }
+            }
+        });
+    }
+}
 ```
 
 ## Rust
