@@ -107,6 +107,7 @@ index = hash & dict->ht[x].sizemask;
 dictEntry *entry = new DictEntry();
 entry->key = key;
 // 如果冲突，则使用链地址法(separate chaining)解决冲突
+// 其他如开放定址（Open Addressing）,布谷鸟哈希（Cuckoo Hashing）
 // 并且为了效率会讲新加入的元素放在表头
 entry->next = dict->ht[x].table[index][0];
 dict->ht[x].table[index][0] = entry;
