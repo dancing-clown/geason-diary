@@ -729,3 +729,81 @@ impl Future for AsyncIOOperate {
 
 - `Send`：表示类型的实例可以在线程之间安全地转移(move)。
 - `Sync`：如果`T: Sync`,则`&T`可以在多线程间共享。而在线程中共享所有权，则需要`Arc<T>`,详情可见[智能指针](./smart_pointer.md)；而如果要使用可变共享，需要`Arc<Mutex<T>>` 或者`Arc<RwLock<T>>`。
+
+## C++
+
+### std::future
+
+`std::future`是C++11引入的异步编程组件，配合`std::async`和`std::promise`使用。主要解决 如何获取异步任务的结果，以及 如何避免同步等待的低效 问题。
+
+核心作用：
+
+1.分离"任务执行"与"结果获取"
+
+当需要执行一个耗时任务（如文件读写、网络请求、复杂计算）时，无需阻塞当前线程等待任务完成，而是通过`std::async`启动异步任务，同时获得一个`std::future`对象。当前线程可以继续执行其他操作，知道需要结果时，通过future获取（可通过`wait_for`/`wait_util`非阻塞检查）。
+
+```C++
+#include <future>
+#include <iostream>
+
+// 假装是非常耗时的任务。
+int heavy_task(int x) {return x * 2;}
+
+int main() {
+    // 启动异步任务，立即返回future
+    auto fut = std::async(std::launch::async, heavy_task, 10);
+
+    // 当前线程可以执行其他操作
+    std::cout << "Doing other work." << std::endl;
+    // 需要结果时获取，若未完成则阻塞等待
+    auto ret = fut.get();
+    std::cout << "Result: " << ret << std::endl;
+    return 0;
+}
+```
+
+`std::promise`提供异步任务中设置共享变量的方法。
+
+```C++
+#include <future>
+#include <chrono>
+
+int main() {
+    auto task = [](promise<int>& promise) {
+        cout << "task execute...\n";
+        // 模拟耗时操作
+        this_thread::sleep_for(chrono::seconds(3));
+        promise.set_value(42);
+    };
+    promise<int> p;
+    auto f = p.get_future();
+    auto startpoint = chrono::steady_clock::now();
+    // 也可以使用其他线程来执行这个任务，get的时候会阻塞等待
+    task(p);
+    cout << "promise value: " << f.get() << endl;
+    auto endpoint = chrono::steady_clock::now();
+    cout << "elapsed: " << chrono::duration_cast<chrono::seconds>(endpoint - startpoint).count() << "s\n";
+    return 0;
+}
+```
+
+`std::pacakged_task`则是提供了异步任务的封装。
+
+```C++
+int main() {
+    packaged_task<string()> task([]() {
+        auto utc = chrono::system_clock::to_time_t(chrono::system_clock::now());
+        this_thread::sleep_for(chrono::seconds(3));
+        return ctime(&utc);
+    });
+    auto f = task.get_future();
+    jthread t(move(task));
+    auto time = chrono::system_clock::to_time_t(chrono::system_clock::now());
+    cout << "main time: \n" << ctime(&time);
+    cout << "task result:\n" << f.get();
+}
+```
+
+### 协程
+
+C++20引入协程(Coroutines)，支持在执行过程中暂停(suspend)并恢复(resume)，无需阻塞线程。解决"回调地狱"，同时比线程更轻量（无内核态切换开销）。目前感觉最终也会使用Go的goroutine调度模型。
