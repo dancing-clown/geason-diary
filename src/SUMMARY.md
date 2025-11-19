@@ -20,3 +20,4 @@
 - [第十四章 Redis](./redis.md)
 - [第十五章 Kafka](./kafka.md)
 - [第十六章 数据结构](./data_structure.md)
+- [第十七章 线程休眠](./thread_sleep.md)
