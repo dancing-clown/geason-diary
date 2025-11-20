@@ -138,6 +138,9 @@ private:
         T resource = std::move(_pool.front());
         _pool.pop_front();
         // 实际这里是可能出现问题的，因为这里是notify_one,随机唤醒一个线程
+        // 而唤醒的线程可能会因为还没有释放_mutex，导致二次休眠；而不是判断不满足条件而进行的休眠
+        // 形成无效唤醒，正确应该先执行 lock.unlock();
+        // 代码参考 https://en.cppreference.com/w/cpp/thread/condition_variable/notify_one.html
         _condition_variable_push.notify_one();
         return std::optional<T>(std::move(resource));
     }
