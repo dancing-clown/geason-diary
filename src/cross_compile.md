@@ -1,5 +1,7 @@
 # 交叉编译
 
+## 交叉编译windows
+
 平时我们开发工作是在mac完成，实际生产存在windows运行环境，调试阶段可以用此种方式快速验证修改代码
 
 ```shell
@@ -18,7 +20,7 @@ rustup target add x86_64-pc-windows-msvc
 cargo xwin build --release --target x86_64-pc-windows-msvc
 ```
 
-编译机为linux
+编译机为linux/macos
 
 ```shell
 apt install mingw-w64
@@ -48,4 +50,26 @@ image = "togettoyou/ghcr.io.cross-rs.x86_64-pc-windows-gnu:main"
 
 ```shell
 cross build -r --target x86_64-pc-windows-gnu
+```
+
+## 交叉编译linux
+
+大部分工作也需要linux编译，例如在mac上编译linux版本应用,直接运行交叉编译，经常会遇到OpenSSL的编译问题或x86_64-unknown-linux-gnu-gcc未找到的问题。
+
+步骤如下
+
+```shell
+rustup target add x86_64-unknown-linux-gnu
+export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git"
+export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles"
+brew update
+# 实际这里安装就OK了
+brew tap messense/macos-cross-toolchains
+brew install -s messense/macos-cross-toolchains/x86_64-unknown-linux-gnu
+# 但是建议是使用musl的libc静态版本，很多编译问题都可以解决
+brew tap filosottile/musl-cross
+brew install filosottile/musl-cross/musl-cross
+# 执行编译
+cargo build  --release --target x86_64-unknown-linux-gnu
 ```
