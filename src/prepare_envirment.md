@@ -52,7 +52,7 @@ bcdedit /set hypervisorlauchtype auto
 
 ```shell
 curl -fsSL https://claude.ai/install.sh | bash
-brew install nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 nvm install node
 npx ccwx
 ```
