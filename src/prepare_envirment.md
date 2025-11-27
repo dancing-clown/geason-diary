@@ -46,7 +46,16 @@ bcdedit /set hypervisorlauchtype auto
 
 ## IDE Trae 搭建
 
-先去[Trae 官网](https://www.trae.cn/)下载安装windows版本后
+先去[Trae 官网](https://www.trae.cn/)或[Trae 英文官网](https://www.trae.ai/)下载安装windows版本后
+
+## claude cli安装
+
+```shell
+curl -fsSL https://claude.ai/install.sh | bash
+brew install nvm
+nvm install node
+npx ccwx
+```
 
 ### 安装rust
 
@@ -55,6 +64,21 @@ bcdedit /set hypervisorlauchtype auto
 ```shell
 export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
 export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+# 清华源
+export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup
+export RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup
+# 上海交通大学镜像源
+export RUSTUP_DIST_SERVER=https://mirrors.sjtu.edu.cn/rust-static
+export RUSTUP_UPDATE_ROOT=https://mirrors.sjtu.edu.cn/rust-static/rustup
+# 字节跳动镜像源
+export RUSTUP_DIST_SERVER=https://rsproxy.cn
+export RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
+# 阿里云镜像源
+export RUSTUP_DIST_SERVER=https://mirrors.aliyun.com/rustup
+export RUSTUP_UPDATE_ROOT=https://mirrors.aliyun.com/rustup/rustup
+# 华为云镜像源
+export RUSTUP_DIST_SERVER=https://mirrors.huaweicloud.com/rustup
+export RUSTUP_UPDATE_ROOT=https://mirrors.huaweicloud.com/rustup/rustup
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 ```
 

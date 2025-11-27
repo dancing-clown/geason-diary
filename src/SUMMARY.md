@@ -21,3 +21,5 @@
 - [第十五章 Kafka](./kafka.md)
 - [第十六章 数据结构](./data_structure.md)
 - [第十七章 线程休眠](./thread_sleep.md)
+- [第十八章 期货交易](./futures_trading.md)
+- [第十九章 MySQL](./mysql.md)

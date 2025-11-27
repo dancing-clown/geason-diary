@@ -73,3 +73,20 @@ brew install filosottile/musl-cross/musl-cross
 # 执行编译
 cargo build  --release --target x86_64-unknown-linux-gnu
 ```
+
+实际运行中还需要配置Cargo.toml以支持`openssl-sys`的编译
+
+```toml
+# 以下为部分截取配置
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[target.x86_64-unknown-linux-gnu.dependencies]
+openssl-sys = { version = "0.9", features = ["vendored"] }
+
+[profile.release]
+opt-level = 3         # 保持优化
+debug = true          # 保留调试符号
+split-debuginfo = 'unpacked'  # Linux 下生成独立符号文件
+```

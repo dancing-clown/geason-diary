@@ -6,7 +6,7 @@
 
 参考[Redis 服务器概览](https://redis.io/learn/operate/redis-at-scale/talking-to-redis/redis-server-overview)，因为Redis的存储和操作数据的大部分操作均是在RAM完成而不是磁盘；并且单线程避免了CPU context switching和race condition。但是在6.0开始，Redis支持了多线程I/O从而提升了读写socket性能，可以将IO读写操作委托给另外的线程完成，从而提升了Redis的吞吐量。
 
-虽然Redis大部分操作是内存中进行的，但是也是有持久化机制的，分别是RDB和AOF。RDB是fork金进程，进行RDB快照，将内存中的数据完整备份到磁盘，主进程继续处理命令(类似于Mysql的redo log)。AOF是刷盘异步化（类似于Mysql的binlog），将AOF缓冲区的命令写入磁盘，这样主线程只需要写入缓冲区即可，从而达到只进行内存操作的目的。Redis重启时，通过RDB恢复内存，再用AOF重放最近的几条数据；因此每次做完RDB，理论来说AOF就会清零；没做RDB期间就是通过AOF来完成数据的持久化。
+虽然Redis大部分操作是内存中进行的，但是也是有持久化机制的，分别是RDB和AOF。RDB是fork进程，进行RDB快照，将内存中的数据完整备份到磁盘，主进程继续处理命令(类似于Mysql的redo log)。AOF是刷盘异步化（类似于Mysql的binlog），将AOF缓冲区的命令写入磁盘，这样主线程只需要写入缓冲区即可，从而达到只进行内存操作的目的。Redis重启时，通过RDB恢复内存，再用AOF重放最近的几条数据；因此每次做完RDB，理论来说AOF就会清零；没做RDB期间就是通过AOF来完成数据的持久化。
 
 网络IO采用典型的Reactor模型（IO多路复用）：通过epoll\select等系统调用，单线程监听多个客户端的IO状态；一旦某个IO就绪，则通过回调机制立即处理数据。这里如果开启了6.0的特性，则会使用多线程并行处理耗时IO操作。Acceptor处理新建连接，给Reactor；Reactor监听到对应的IO读写或就绪，分别分配对应的事件给Dispatch；其中computer事件还是转发给主线程完成，从而保证计算是单线程执行，其他的read/decode/encode/write仍然是dispatch的组合线程完成。
 
