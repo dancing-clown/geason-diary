@@ -23,3 +23,4 @@
 - [第十七章 线程休眠](./thread_sleep.md)
 - [第十八章 期货交易](./futures_trading.md)
 - [第十九章 MySQL](./mysql.md)
+- [第二十章 运维定位](./ops_troubleshooting.md)
