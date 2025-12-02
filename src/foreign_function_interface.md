@@ -28,7 +28,7 @@ unsafe {
 }
 ```
 
-而我们用的最多的就是调用unsafe代码块来调用C++代码；如果想要C/C++调用rust的代码，还需要使用`extern "C"`来声明函数签名和`#[unsafe(no_mangle)]`防止命名混淆，例如如下代码:
+而我们用的最多的就是调用unsafe代码块来调用C++代码；如果想要C/C++调用rust的代码，还需要使用`extern "C"`来声明函数签名和`#[unsafe(no_mangle)]`防止命名混淆，如如下Rust代码。
 
 ```rust,edition2024
 use std::os::raw::c_int;
@@ -64,6 +64,8 @@ typedef int32_t (*callback_t)(int32_t);
 void add_callback(callback_t callback);
 ```
 
+对应调用的Rust代码如下。
+
 
 ```Rust,edition20424
 pub type CALLBACK_T = std::option::Option<
@@ -78,7 +80,7 @@ pub unsafe extern "C" fn callback_impl(a_impl: i32) -> i32 {
     a_impl + 1
 }
 
-int main() {
+fn main() {
     add_callback(Some(callback_impl));
 }
 ```
@@ -91,9 +93,9 @@ int main() {
 
 目前的整体想法是，先将对应的wrapper，联合对应发布件，组织成一个crate进行发布，这里参考实现的是[rdkafka](https://github.com/fede1024/rust-rdkafka)的实现方式，将对应的c接口函数封装为`rdkafka-sys`，然后再基于该crate实现无unsafe的函数方法。
 
-[oes_api_wrapper](http://code.non-convex.com:18118/gateway/counter_sdk_swapper/oes_api_wrapper)对应的SDK也是C接口，所以这里实现主要是将对应头文件生成对应的bindings.rs即可。
+[oes_api_wrapper](http://code.non-convex.com:18118/gateway/counter_sdk_swapper/oes_api_wrapper)对应的SDK也是C接口，所以这里实现主要是将对应头文件生成对应的`bindings.rs`即可。
 
-大致的目录结构如下
+大致的目录结构如下。
 
 ```bash
 .
@@ -307,15 +309,15 @@ int main() {
 └── rust-toolchain.toml
 ```
 
-其中主要讨论的实现在oes_api_sys中。
+其中主要讨论的实现在`oes_api_sys`中。
 
-oes_api_sys下主要有oes_libs目录（用于存放各个版本的sdk的lib和headers），src目录（用于存放该crates对外暴露的bindings.rs和声明mod bindings的lib.rs），build.rs通过features控制对应编译的版本（features控制oes_libs二级目录的version从而控制整个path）和binding.hpp的编译宏（可以做到一个binding.hpp生成多种不同版本对应的binding.rs），binding.hpp用于控制所暴露出来的extern "C" 的接口。
+`oes_api_sys`下主要有`oes_libs`目录（用于存放各个版本的sdk的lib和headers），`src`目录（用于存放该crates对外暴露的`bindings.rs`和声明`pub mod bindings`的`lib.rs`），`build.rs`通过features控制对应编译的版本（features控制oes_libs二级目录的version从而控制整个path）和`bindings.hpp`的编译宏（可以做到一个binding.hpp生成多种不同版本对应的binding.rs），binding.hpp用于控制所暴露出来的extern "C" 的接口。
 
 整个业务的实现核心在于"如何通过build.rs生成多版本binding.rs的同时，对于依赖他的crate无感知so，即将对应版本的发布件.so或.a作为发布件一起发布"。这里用到的是`cargo:rustc-link-search=native={}`来告知调用的crate构建，对应链接的时候，应该去这个目录查找对应的so;解决完编译问题，还有发布件的发布问题，通过std::file::copy将其拷贝到对应发布路径下目录；不建议指定特殊目录，破坏了cargo的目录发布件原则。
 
-除了以上问题外，构建bindings.rs的同学应该遵循"最小使用原则"，明确需要使用到的函数名(`allowlist_function`)，需要使用到的类型(`allowlist_type`)，需要使用到的变量名(`allowlist_var`，暴露源文件的常量)。最终生成一个合理大小的bindings.rs。
+除了以上问题外，构建bindings.rs的同学应该遵循"最小使用原则"，明确需要使用到的函数名(`allowlist_function`)，需要使用到的类型(`allowlist_type`)，需要使用到的变量名(`allowlist_var`，暴露源文件的常量)。最终生成一个合理大小的`bindings.rs`。
 
-实际操作过程中。也会出现部分函数是使用了C的宏构造函数，函数名中会携带对应的版本信息，因此bindings.hpp 也有一定的函数二次封装的作用，解决此类问题。
+实际操作过程中。也会出现部分函数是使用了C的宏构造函数，函数名中会携带对应的版本信息，因此`bindings.hpp`也有一定的函数二次封装的作用，解决此类问题。
 
 ### CtpApiWrapper(C++封装)
 
@@ -412,7 +414,7 @@ oes_api_sys下主要有oes_libs目录（用于存放各个版本的sdk的lib和h
             └── sdk_wrapper.hpp
 ```
 
-该crates下只有ctp_api_sys目录，其下包含了ctp_libs目录(关于ctp sdk的多版本多操作系统支持的动态库和头文件，因为CTP还有windows版本发布)，src目录（对应生成的bindings.rs,lib.rs），wrapper(封装了C++接口C函数sdk_wrapper.hpp， rust回调声明函数rust_wrapper.hpp，和内部C++ class转C指针的相关函数头文件及对应实现cxx/wrapper.cpp)。
+该crates下只有`ctp_api_sys`目录，其下包含了`ctp_libs`目录(关于ctp sdk的多版本多操作系统支持的动态库和头文件，因为CTP还有windows版本发布)，`src`目录（对应生成的bindings.rs,lib.rs）,`wrapper`目录(封装了C++接口C函数`hxx/sdk_wrapper.hpp`， rust回调声明函数`hxx/rust_wrapper.hpp`和内部C++ class转C指针的相关函数头文件`hxx/ctp_spi_wrapper.hpp`及对应实现`cxx/wrapper.cpp`)。
 
 和之前不同的是，这里的bings.hpp只需要去包含`wrappers/hxx/sdk_wrapper.hpp`(Rust调用C的接口声明)和`wrappers/hxx/rust_wrapper.hpp`（C调用Rust回调的函数声明）即可。
 
@@ -420,5 +422,5 @@ oes_api_sys下主要有oes_libs目录（用于存放各个版本的sdk的lib和h
 
 实践中需要注意实现细节:
 
-- 1.如果是POD结构的，C++自然可以信手拈来；如果是非POD的，C++的binding的大量工作将会集中于非POD结构转POD结构的工作：例如stl的`std::string`需要转换为C中的 `char[]`，并且注意对应的生命周期管理；复杂的`std::vector<std::string>`则需要考虑用更复杂的结构体来转换。
+- 1.如果是`POD`结构的，C++自然可以信手拈来；如果是非POD的，C++大量的binding工作将会集中于非`POD`结构转`POD`结构的工作：例如`stl`的`std::string`需要转换为C中的 `char[]`，并且注意对应的生命周期管理；复杂的`std::vector<std::string>`则需要考虑用更复杂的结构体来转换。
 - 2.指针周期管理。Rust的`unsafe`就是程序员向Rust保证，我的资源管理是清楚的，我们这里使用C++中的对象指针做管理，需要自定义实现drop方法，避免指针悬挂；并且使用了指针之后，对于`Send`和`Sync`的trait也需要考虑是否要实现。我这里实现比较偷懒，使用了`std::sync::Mutex`的锁来锁这个指针的持有者，进行的资源保护；大家如果有更好的Rust写法也可以提出。
