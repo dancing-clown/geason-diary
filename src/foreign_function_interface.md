@@ -66,7 +66,6 @@ void add_callback(callback_t callback);
 
 对应调用的Rust代码如下。
 
-
 ```Rust,edition20424
 pub type CALLBACK_T = std::option::Option<
     unsafe extern "C" fn(a: i32) -> i32

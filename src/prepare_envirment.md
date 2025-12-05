@@ -14,7 +14,7 @@
 
 如果提示如下，则有后续配置：
 
-```shell
+```bash
 当前计算机配置不支持WSL2.
 请启用“虚拟化平台”可选组件，并确保在BIOS中启用虚拟化。
 通过运行以下指令启用“虚拟机平台”: wsl.exe --install --no-distribution
@@ -50,7 +50,7 @@ bcdedit /set hypervisorlauchtype auto
 
 ## claude cli安装
 
-```shell
+```bash
 curl -fsSL https://claude.ai/install.sh | bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 nvm install node
@@ -61,7 +61,7 @@ npx ccwx
 
 执行命令如下安装指令，采用国内rustup更快
 
-```shell
+```bash
 export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
 export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
 # 清华源
@@ -86,7 +86,7 @@ curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 
 安装成功后，将环境变量生效。
 
-```shell
+```bash
 . "$HOME/.cargo/env"
 ```
 
@@ -94,13 +94,13 @@ curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 
 安装完成后，可能设计crate源的问题，也可以切换国内源
 
-```shell
+```bash
 vim $HOME/.cargo/config
 ```
 
 配置如下内容
 
-```shell
+```bash
 [source.crates-io]
 replace-with = 'ustc'
 [source.ustc]
@@ -111,9 +111,22 @@ index = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
 git-fetch-with-cli = true
 ```
 
+或者
+
+```bash
+[source.crates-io]
+replace-with = 'tuna'
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+[registries.tuna]
+index = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+[net]
+git-fetch-with-cli = true
+```
+
 ### 插件安装
 
-下载vscode及插件，仅做推荐（个人习惯，选择各自适合的IDE即可)
+下载vscode及插件，仅做推荐（个人习惯，选择各自适合的IDE即可）
 
 rust-analyzer //rust插件
 
@@ -133,12 +146,12 @@ MarkDownLint // 编写markdown的lint语法检查
 
 如果本地没有安装rust和rustup
 
-```shell
+```bash
 rustup update stable
 ```
 
 指定特定rust版本
 
-```shell
+```bash
 rustup show rustup default 1.88.0
 ```

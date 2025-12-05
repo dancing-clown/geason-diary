@@ -48,7 +48,7 @@ strace主要用于跟踪程序的系统调用（read/write/socket/fork），定�
 
 比如定位行情推送延迟，可以使用
 
-```shell
+```bash
 strace -tt -e trace=network -p 12345 -o strace_net.log
 ```
 

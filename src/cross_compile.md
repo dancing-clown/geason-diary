@@ -4,7 +4,7 @@
 
 平时我们开发工作是在mac完成，实际生产存在windows运行环境，调试阶段可以用此种方式快速验证修改代码
 
-```shell
+```bash
 export https_proxy=http://xxx http_proxy=http://xxx all_proxy=socks5://xxx
 brew install mingw-w64
 rustup target add x86_64-pc-windows-gnu
@@ -13,7 +13,7 @@ cargo build --target x86_64-pc-windows-gnu
 
 另外个Visual Studio环境执行
 
-```shell
+```bash
 cargo install cargo-xwin
 brew install llvm
 rustup target add x86_64-pc-windows-msvc
@@ -22,7 +22,7 @@ cargo xwin build --release --target x86_64-pc-windows-msvc
 
 编译机为linux/macos
 
-```shell
+```bash
 apt install mingw-w64
 # 另外个Visual Studio环境执行 cargo target add x86_64-pc-windows-msvc
 cargo build --target x86_64-pc-windows-gnu
@@ -30,7 +30,7 @@ cargo build --target x86_64-pc-windows-gnu
 
 也可以选用docker方式的```cross```工具简化跨平台编译流程
 
-```shell
+```bash
 cargo install cross
 ```
 
@@ -48,7 +48,7 @@ image = "togettoyou/ghcr.io.cross-rs.x86_64-pc-windows-gnu:main"
 
 最后运行cross命令编译Windows版本应用
 
-```shell
+```bash
 cross build -r --target x86_64-pc-windows-gnu
 ```
 
@@ -58,7 +58,7 @@ cross build -r --target x86_64-pc-windows-gnu
 
 步骤如下
 
-```shell
+```bash
 rustup target add x86_64-unknown-linux-gnu
 export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git"
 export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"

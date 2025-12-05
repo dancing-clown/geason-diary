@@ -370,7 +370,7 @@ O0: 调试模式，保留所有调试信息和源代码执行顺序，禁用所�
 
 O1: 编译器在不增加编译时间即不影响编译速度的情况下，减少可执行程序代码大小和代码执行时间。常见的有：基础优化，死代码消除，跳转线程化，基本循环优化，寄存器分配优化。相关优化参数如下所示。
 
-```shell
+```bash
 -fauto-inc-dec
 -fbranch-count-reg 
 -fcombine-stack-adjustments 
@@ -422,7 +422,7 @@ O1: 编译器在不增加编译时间即不影响编译速度的情况下，减�
 
 O2: 相对于O1进一步优化，会增加编译时间（牺牲编译速度）以及进一步降低代码运行时间。常见的有：函数内联，指令重排，尾部调用优化，常量传播，循环展开。-O2选项除了开启-O1的所有优化标志外，还会开启以下优化标志：
 
-```shell
+```bash
 -falign-functions  -falign-jumps 
 -falign-labels  -falign-loops 
 -fcaller-saves 
@@ -494,7 +494,7 @@ Os: 尺寸优化，减少代码体积，禁用增加体积的优化。和O2差�
 
 Og: 在快速编译和可调试之间保持了一个合理的优化策略，沿用-O1,但是不包含对O1中对调试信息产生影响的标志。
 
-```shell
+```bash
 -fbranch-count-reg -fdelayed-branch 
 -fdse -fif-conversion -fif-conversion2   
 -finline-functions-called-once 

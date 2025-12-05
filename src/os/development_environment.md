@@ -20,7 +20,7 @@
 
 实验环境安装基于C语言的开发，可以安装基本的本机开发环境和交叉开发环境。
 
-```shell
+```bash
 sudo apt-get update && sudo apt-get upgrade
 sudo apt-get install git build-essential gdb-multiarch qemu-system-misc gcc-riscv64-linux-gnu buildutils-riscv64-linux-gnu
 ```
@@ -29,7 +29,7 @@ sudo apt-get install git build-essential gdb-multiarch qemu-system-misc gcc-risc
 
 除了之前的环境搭建，rust还有相关软件包需要安装和部署
 
-```shell
+```bash
 rustup target add riscv64gc-unknown-none-elf
 cargo install cargo-binutils
 rustup component add llvm-tools-preview
@@ -40,7 +40,7 @@ rustup component add rust-src
 
 使用QEMU 7.0 版本进行实验。很多Linux发行版的软件管理器默认软件源中的QEMU版本过低，需要手动编译安装QEMU模拟器软件。
 
-```shell
+```bash
 # 安装编译所需依赖包
 sudo apt install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev \
 gawk build-essential bison flex texinfo gperf libtool patchutils bc \
@@ -57,13 +57,13 @@ make -j$(nproc)
 
 strip为os镜像，目的是删除前置的metadata，如果包含可能会导致qemu将metadata当作了内核的第一条指令从而执行错误。
 
-```shell
+```bash
 rust-objcopy --strip-all target/riscv64gc-unknown-none-elf/release/rust_test -O binary target/riscv64gc-unknown-none-elf/release/os.bin
 ```
 
 运行qemu
 
-```shell
+```bash
 qemu-system-riscv64 \
 -machine virt \
 -nographic \
@@ -74,14 +74,14 @@ qemu-system-riscv64 \
 
 运行gdb客户端
 
-```shell
+```bash
 ~/riscv64-unknown-elf-gcc-8.3.0-2020.04.1-x86_64-apple-darwin/bin/riscv64-unknown-elf-gdb \
     -ex 'file target/riscv64gc-unknown-none-elf/release/rust_test' \
     -ex 'set arch riscv:rv64' \
     -ex 'target remote localhost:1234'
 ```
 
-```shell
+```bash
 x/10i $pc
 b *0x80200000
 x/5i $pc
