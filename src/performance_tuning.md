@@ -326,11 +326,9 @@ int main()
     uint64_t b = UINT64_MAX - 1000;
 
 }
-
-
 ```
 
-## 相关知识点总结
+### 案例总结
 
 1.循环左移的arm指令
 
@@ -524,3 +522,630 @@ void __buitin_prefetch(const void *addr, int rw, int locality);
 - locality: 局部性类型（0：最近，1：循环，2：随机）
 
 关于预取当前其实没有特别的优化说明，后续会补充相关的汇编代码进行解释。
+
+## crossbeam::channel p99毛刺解析
+
+我们为了提高消息处理，并且crossbeam::channel是无锁队列，模拟10w突发流量数据处理，测试代码如下。
+
+测试机信息如下：
+
+```bash
+CPU: Apple M4 Pro
+Phys:12 Logical:12
+Mem:48 GB
+```
+
+```rust
+use crossbeam::channel;
+use std::time::{Duration, Instant};
+use hdrhistogram::Histogram;
+
+const SENDER_THREAD_COUNT: usize = 1;
+const RECEIVER_THREAD_COUNT: usize = 1;
+const ORDER_COUNT: usize = 100_000;
+
+pub struct Order {
+    pub id: i32,
+    pub price: f64,
+    pub amount: u32,
+    pub instant: Instant,
+}
+
+fn main() {
+    let (tx, rx) = channel::bounded::<Order>(1000_000);
+    let (metric_tx, metric_rx) = channel::unbounded::<Duration>();
+    let mut recv_join_handle = Vec::new();
+    // 先创建接收线程，避免已经开始发送数据后，接收端还不能接受数据的偏差
+    for _ in 0..RECEIVER_THREAD_COUNT {
+        let rx_clone = rx.clone();
+        let metric_tx_clone = metric_tx.clone();
+        recv_join_handle.push(std::thread::spawn(move || {
+            for order in rx_clone {
+                let _ = metric_tx_clone.send(order.instant.elapsed());
+            }
+        }));
+    }
+    drop(metric_tx);
+
+    let mut send_join_handle = Vec::new();
+    for _ in 0..SENDER_THREAD_COUNT {
+        let tx_clone = tx.clone();
+        send_join_handle.push(std::thread::spawn(move || {
+            for i in 0..ORDER_COUNT {
+                let order = Order {
+                    id: i as i32,
+                    price: i as f64,
+                    amount: i as u32,
+                    instant: Instant::now(),
+                };
+                if tx_clone.send(order).is_err() { break; }
+            }
+        }));
+    }
+    drop(tx);
+    // 创建一个直方图，指定桶数量（例如1000个桶）
+    let mut histogram = Histogram::<u64>::new(3).unwrap();
+
+    for i in (0..SENDER_THREAD_COUNT).rev() {
+        send_join_handle.remove(i).join().unwrap();
+    }
+
+    for i in (0..RECEIVER_THREAD_COUNT).rev() {
+        recv_join_handle.remove(i).join().unwrap();
+    }
+
+    for duration in metric_rx {
+        histogram.record(duration.as_micros() as u64).unwrap();
+    }
+     // 计算P99延迟
+    let p99 = histogram.value_at_percentile(99.0);
+    println!("P99 latency: {p99} us");
+    // 计算p90延迟
+    let p90 = histogram.value_at_percentile(90.0);
+    println!("P90 latency: {p90} us");
+    // 计算p50延迟
+    let p50 = histogram.value_at_percentile(50.0);
+    println!("P50 latency: {p50} us");
+
+    // 其他统计信息
+    println!("Mean: {} us", histogram.mean());
+    // 不允许丢数据
+    println!("Total count: {}", histogram.len());
+}
+```
+
+优化前，使用单线程消息发送和接收，统计结果如下图所示。
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|1|1|670 us|1148 us|1220 us|100000|
+|1|1|757 us|1226 us|1305 us|100000|
+|1|1|757 us|1193 us|1310 us|100000|
+|1|1|787 us|1347 us|1418 us|100000|
+|1|1|743 us|1183 us|1298 us|100000|
+|1|1|682 us|1207 us|1325 us|100000|
+|1|1|769 us|1244 us|1362 us|100000|
+|1|1|601 us|1026 us|1142 us|100000|
+|1|1|602 us|1000 us|1085 us|100000|
+|1|1|554 us|1023 us|1112 us|100000|
+
+初期的想法是简单的根据当前的核数进行分配。
+分别测试SENDER_NUM = 5, 10，20的场景
+
+```rust
+// 修改部分代码如下
+const SENDER_THREAD_COUNT: usize = 5;
+const RECEIVER_THREAD_COUNT: usize = 1;
+const ORDER_COUNT: usize = 20_000;
+```
+
+测试send=5的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|5|1|0 us|15 us|114 us|100000|
+|5|1|0 us|1 us|36 us|100000|
+|5|1|0 us|63 us|123 us|100000|
+|5|1|0 us|2 us|50 us|100000|
+|5|1|0 us|2 us|61 us|100000|
+|5|1|0 us|8 us|64 us|100000|
+|5|1|0 us|3 us|45 us|100000|
+|5|1|0 us|3 us|59 us|100000|
+|5|1|0 us|8 us|51 us|100000|
+|5|1|0 us|102 us|156 us|100000|
+
+同比于单一线程发送，这里的p99延迟是单一线程的15倍左右，这是因为多线程发送会引入额外的线程切换开销。因为高频关注的往往会要求p99的延迟性能，所以这里仅讨论p99。
+
+```rust
+// 发送线程数为10
+const SENDER_THREAD_COUNT: usize = 10;
+const RECEIVER_THREAD_COUNT: usize = 1;
+const ORDER_COUNT: usize = 10_000;
+```
+
+测试send=10（release）的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|10|1|0 us|5 us|117 us|100000|
+|10|1|198 us|487 us|521 us|100000|
+|10|1|0 us|141 us|205 us|100000|
+|10|1|0 us|8 us|117 us|100000|
+|10|1|0 us|3 us|113 us|100000|
+|10|1|100 us|287 us|356 us|100000|
+|10|1|0 us|59 us|103 us|100000|
+|10|1|0 us|5 us|90 us|100000|
+|10|1|0 us|5 us|150 us|100000|
+|10|1|104 us|332 us|382 us|100000|
+
+```rust
+const SENDER_THREAD_COUNT: usize = 20;
+const RECEIVER_THREAD_COUNT: usize = 1;
+const ORDER_COUNT: usize = 5_000;
+```
+
+测试send=20（release）的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|20|1|0 us|5 us|271 us|100000|
+|20|1|0 us|21 us|225 us|100000|
+|20|1|0 us|244 us|320 us|100000|
+|20|1|0 us|148 us|202 us|100000|
+|20|1|0 us|3 us|264 us|100000|
+|20|1|16 us|573 us|665 us|100000|
+|20|1|0 us|18 us|321 us|100000|
+|20|1|0 us|21 us|216 us|100000|
+|20|1|233 us|593 us|660 us|100000|
+|20|1|0 us|101 us|206 us|100000|
+
+可以看到当发送线程达到10以上后，p50的延迟基本都是微妙级别，但是p99的延迟仍然是百纳秒级。
+
+测试recv=5的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|1|5|7779 us|13407 us|14823 us|100000|
+|1|5|8271 us|13439 us|14287 us|100000|
+|1|5|7307 us|12783 us|13807 us|100000|
+|1|5|5203 us|9383 us|10759 us|100000|
+|1|5|6251 us|11271 us|11951 us|100000|
+|1|5|5259 us|10311 us|11359 us|100000|
+|1|5|4787 us|9231 us|10471 us|100000|
+|1|5|5747 us|10695 us|11663 us|100000|
+|1|5|6483 us|10631 us|12111 us|100000|
+|1|5|5979 us|11471 us|12703 us|100000|
+
+测试recv=10的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|1|10|9287 us|16511 us|18079 us|100000|
+|1|10|5323 us|10783 us|11751 us|100000|
+|1|10|6831 us|13255 us|14663 us|100000|
+|1|10|7667 us|14311 us|15711 us|100000|
+|1|10|6059 us|12071 us|13311 us|100000|
+|1|10|5979 us|12463 us|13951 us|100000|
+|1|10|8527 us|15463 us|17103 us|100000|
+|1|10|9519 us|17295 us|19007 us|100000|
+|1|10|8959 us|16359 us|18095 us|100000|
+|1|10|9127 us|16735 us|18367 us|100000|
+
+测试send=1, recv=20（release）的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|1|20|6671 us|13527 us|15231 us|100000|
+|1|20|8543 us|15719 us|17071 us|100000|
+|1|20|9127 us|15895 us|17407 us|100000|
+|1|20|8671 us|15247 us|16623 us|100000|
+|1|20|7479 us|13847 us|15311 us|100000|
+|1|20|7131 us|13639 us|15191 us|100000|
+|1|20|7035 us|12583 us|13831 us|100000|
+|1|20|8983 us|15263 us|16655 us|100000|
+|1|20|6599 us|12895 us|14127 us|100000|
+|1|20|8479 us|15119 us|16607 us|100000|
+
+可以看到，如果不改变生产者的速率，消费者越多，也会导致p99的延迟大幅度增加。即使调快了生产者速率，消费者线程增加也会导致处理延迟的增加，后续解释。
+
+目前尝试下来最优为send=5，recv=1的场景，那么分析为什么这种场景下，p50延迟几乎可以为0，p90为微秒级，但p99仍然为百微妙左右。
+
+添加热力图
+
+```rust
+use crossbeam::channel;
+use std::time::{Duration, Instant};
+use hdrhistogram::Histogram;
+use pprof::ProfilerGuardBuilder;
+
+const SENDER_THREAD_COUNT: usize = 5;
+const RECEIVER_THREAD_COUNT: usize = 1;
+const ORDER_COUNT: usize = 20_000;
+
+pub struct Order {
+    pub id: i32,
+    pub price: f64,
+    pub amount: u32,
+    pub instant: Instant,
+}
+
+fn main() {
+    let guard = ProfilerGuardBuilder::default()
+        .frequency(99)
+        .build()
+        .unwrap();
+    let (tx, rx) = channel::bounded::<Order>(1000_000);
+    let (metric_tx, metric_rx) = channel::unbounded::<Duration>();
+    let mut recv_join_handle = Vec::new();
+    for _ in 0..RECEIVER_THREAD_COUNT {
+        let rx_clone = rx.clone();
+        let metric_tx_clone = metric_tx.clone();
+        recv_join_handle.push(std::thread::spawn(move || {
+            for order in rx_clone {
+                let _ = metric_tx_clone.send(order.instant.elapsed());
+            }
+        }));
+    }
+    drop(metric_tx);
+
+    let mut send_join_handle = Vec::new();
+    for _ in 0..SENDER_THREAD_COUNT {
+        let tx_clone = tx.clone();
+        send_join_handle.push(std::thread::spawn(move || {
+            for i in 0..ORDER_COUNT {
+                let order = Order {
+                    id: i as i32,
+                    price: i as f64,
+                    amount: i as u32,
+                    instant: Instant::now(),
+                };
+                if tx_clone.send(order).is_err() { break; }
+            }
+        }));
+    }
+    drop(tx);
+    // 创建一个直方图，指定桶数量（例如1000个桶）
+    let mut histogram = Histogram::<u64>::new(3).unwrap();
+
+    for i in (0..SENDER_THREAD_COUNT).rev() {
+        send_join_handle.remove(i).join().unwrap();
+    }
+
+    for i in (0..RECEIVER_THREAD_COUNT).rev() {
+        recv_join_handle.remove(i).join().unwrap();
+    }
+
+    for duration in metric_rx {
+        histogram.record(duration.as_micros() as u64).unwrap();
+    }
+     // 计算P99延迟
+    let p99 = histogram.value_at_percentile(99.0);
+    println!("P99 latency: {p99} us");
+    // 计算p90延迟
+    let p90 = histogram.value_at_percentile(90.0);
+    println!("P90 latency: {p90} us");
+    // 计算p50延迟
+    let p50 = histogram.value_at_percentile(50.0);
+    println!("P50 latency: {p50} us");
+
+    // 其他统计信息
+    println!("Mean: {} us", histogram.mean());
+    // 不允许丢数据
+    println!("Total count: {}", histogram.len());
+
+    if let Ok(report) = guard.report().build() {
+        let file = std::fs::File::create("flamegraph.svg").unwrap();
+        let _ = report.flamegraph(file);
+        println!("flamegraph.svg generated");
+    }
+}
+```
+
+多次测试后得到如下热力图
+
+[热力图展示](./images/flamegraph.svg)
+
+可以看到当前主要阻塞点为`crossbeam::Sender::send`
+
+切换linux系统运行strace,可以观察到有大量的futex调用。
+
+```bash
+strace -c  ./target/release/own_test
+P99 latency: 763 us
+P90 latency: 479 us
+P50 latency: 2 us
+Mean: 91.34759 us
+Total count: 100000
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 40.77    0.007387        1846         4           futex
+ 24.37    0.004416        1472         3           munmap
+  9.87    0.001788         298         6           clone3
+  7.89    0.001429          59        24           mmap
+  5.34    0.000967          74        13           rt_sigprocmask
+  3.00    0.000544          41        13           mprotect
+  2.43    0.000441         441         1           execve
+  1.49    0.000270         270         1           madvise
+  0.82    0.000148          24         6           openat
+  0.79    0.000143          17         8           read
+  0.56    0.000102          20         5           write
+  0.41    0.000074          12         6           close
+  0.34    0.000062          12         5           newfstatat
+  0.32    0.000058           9         6           rt_sigaction
+  0.30    0.000055          18         3           brk
+  0.26    0.000048          12         4           pread64
+  0.20    0.000036          18         2           prlimit64
+  0.18    0.000033          11         3           sigaltstack
+  0.13    0.000023          23         1         1 access
+  0.10    0.000019           9         2         1 arch_prctl
+  0.10    0.000018          18         1           poll
+  0.09    0.000016          16         1           sched_getaffinity
+  0.07    0.000012          12         1           set_robust_list
+  0.06    0.000011          11         1           getrandom
+  0.05    0.000009           9         1           set_tid_address
+  0.05    0.000009           9         1           rseq
+------ ----------- ----------- --------- --------- ------------------
+100.00    0.018118         148       122         2 total
+```
+
+但是我们的crossbeam应该是无锁结构才对！代码片段如下。
+
+```rust
+    /// Sends a message into the channel.
+    pub(crate) fn send(
+        &self,
+        msg: T,
+        deadline: Option<Instant>,
+    ) -> Result<(), SendTimeoutError<T>> {
+        let token = &mut Token::default();
+        loop {
+            // Try sending a message several times.
+            let backoff = Backoff::new();
+            loop {
+                if self.start_send(token) {
+                    let res = unsafe { self.write(token, msg) };
+                    return res.map_err(SendTimeoutError::Disconnected);
+                }
+
+                if backoff.is_completed() {
+                    break;
+                } else {
+                    backoff.snooze();
+                }
+            }
+
+            if let Some(d) = deadline {
+                if Instant::now() >= d {
+                    return Err(SendTimeoutError::Timeout(msg));
+                }
+            }
+
+            Context::with(|cx| {
+                // Prepare for blocking until a receiver wakes us up.
+                let oper = Operation::hook(token);
+                self.senders.register(oper, cx);
+
+                // Has the channel become ready just now?
+                if !self.is_full() || self.is_disconnected() {
+                    let _ = cx.try_select(Selected::Aborted);
+                }
+
+                // Block the current thread.
+                let sel = cx.wait_until(deadline);
+
+                match sel {
+                    Selected::Waiting => unreachable!(),
+                    Selected::Aborted | Selected::Disconnected => {
+                        self.senders.unregister(oper).unwrap();
+                    }
+                    Selected::Operation(_) => {}
+                }
+            });
+        }
+    }
+```
+
+当我们进入这个send后，如果无法发送会调用snooze自旋锁等待，当判断当前`step`大于`YIELD_LIMIT`后，退出loop循环，执行wait_until，因为我们调用时没有传入deadline，则会直接调用`thread::park()`阻塞线程，指导recv通知我们。结合strace系统调用可以看到，目前仍然存在40%的时间进行futex即锁的休眠和唤醒。大量线程进行在CAS失败后，选择了休眠，也就导致了我们P99的毛刺产生。
+
+那么找到问题的关键，我们来验证，增加send线程数为20，增加CAS冲突概率，strace统计。
+
+```rust
+strace -c  ./target/release/own_test
+P99 latency: 2809 us
+P90 latency: 349 us
+P50 latency: 3 us
+Mean: 189.25318000000027 us
+Total count: 100000
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 76.19    0.019443       19443         1           futex
+ 15.60    0.003981         796         5           munmap
+  4.39    0.001120          28        39           mmap
+  1.80    0.000459          21        21           clone3
+  0.74    0.000188           6        28           mprotect
+  0.31    0.000080           1        43           rt_sigprocmask
+  0.27    0.000068           8         8           read
+  0.20    0.000050           8         6           openat
+  0.14    0.000037           6         6           rt_sigaction
+  0.06    0.000016           5         3           brk
+  0.05    0.000014          14         1           poll
+  0.05    0.000014           7         2           prlimit64
+  0.05    0.000012           4         3           sigaltstack
+  0.04    0.000011           1         6           close
+  0.04    0.000009           9         1           sched_getaffinity
+  0.04    0.000009           1         5           newfstatat
+  0.03    0.000008           8         1           getrandom
+  0.00    0.000000           0         5           write
+  0.00    0.000000           0         4           pread64
+  0.00    0.000000           0         1         1 access
+  0.00    0.000000           0         1           madvise
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         2         1 arch_prctl
+  0.00    0.000000           0         1           set_tid_address
+  0.00    0.000000           0         1           set_robust_list
+  0.00    0.000000           0         1           rseq
+------ ----------- ----------- --------- --------- ------------------
+100.00    0.025519         130       196         2 total
+```
+
+可以看到毛刺明显，且futex从原来的40%上涨到了76%。
+
+### channel案例总结
+
+crossbeam::channel 的 P99 毛刺本质是高竞争下无锁设计的开销叠加：
+核心矛盾：CAS 竞争 → 自旋 → park/unpark。
+优化核心：减少竞争（分片）> 避免扩容（固定容量）> 缓解缓存问题（对齐）> 批量处理；
+极致场景：SPSC 替代 MPMC，或换用 flume/ringbuf 等专用库（实际测试还是没有crossbeam快）。
+百万级消息场景下，优先通过 “通道分片 + 固定容量 ArrayChannel + 批量处理” 组合，可将 P99 毛刺降低 1~2 个数量级。
+
+核心诉求是「多生产者提升写入效率 + 低延迟无毛刺」，分片 Ringbuf 是最优解；若需快速落地且功能要求高，选Flume的MPSC模式；Crossbeam 仅适合低并发通用场景。
+
+最终将这个代码改成ringbuf形式进行测试回归。
+
+```rust
+use ringbuf::HeapRb;
+use std::time::{Duration, Instant};
+use hdrhistogram::Histogram;
+// use std::hint::spin_loop;
+
+// 保持与原测试一致的配置（仅放大消息量体现 Ringbuf 优势）
+const SENDER_THREAD_COUNT: usize = 5;    // 5个生产者（分片 SPSC 适配）
+// const RECEIVER_THREAD_COUNT: usize = 1;  // 1个消费者（批量读取所有分片）
+const ORDER_COUNT: usize = 20_000;      // 单生产者10万条 → 总50万条
+const WARMUP_COUNT: usize = 10_000;      // 预热消息数（排除冷启动开销）
+const RINGBUF_CAPACITY: usize = 100_000;  // 每个 SPSC 缓冲区容量
+
+// 消息结构体（与原代码一致）
+#[derive(Clone, Debug)]
+pub struct Order {
+    pub id: i32,
+    pub price: f64,
+    pub amount: u32,
+    pub instant: Instant,
+}
+
+fn main() {
+    // 1. 初始化分片 Ringbuf（5个分片对应5个生产者）
+    let mut producers = Vec::with_capacity(SENDER_THREAD_COUNT);
+    let mut consumers = Vec::with_capacity(SENDER_THREAD_COUNT);
+    for _ in 0..SENDER_THREAD_COUNT {
+        let rb = HeapRb::<Order>::new(RINGBUF_CAPACITY);
+        let (prod, cons) = rb.split();
+        producers.push(prod);
+        consumers.push(cons);
+    }
+    let (metric_tx, metric_rx) = crossbeam::channel::unbounded::<Duration>();
+
+    // 2. 启动消费者线程（批量读取所有分片）
+    let mut recv_join_handle = Vec::new();
+    let mut rb_consumers = consumers;
+    let metric_tx_clone = metric_tx.clone();
+    recv_join_handle.push(std::thread::spawn(move || {
+        // 预热阶段：读取所有分片的预热消息（不计入统计）
+        for consumer in rb_consumers.iter_mut() {
+            for _ in 0..WARMUP_COUNT {
+                while consumer.pop().is_none() {
+                    // spin_loop(); // 轻量自旋，适配 Mac 调度
+                }
+            }
+        }
+
+        // 正式统计阶段：批量读取所有分片
+        let mut total_recv = 0;
+        let target_total = SENDER_THREAD_COUNT * ORDER_COUNT;
+        while total_recv < target_total {
+            for consumer in rb_consumers.iter_mut() {
+                // 批量读取（一次读64条，减少循环开销）
+                let mut batch = Vec::with_capacity(64);
+                while let Some(order) = consumer.pop() {
+                    batch.push(order);
+                    if batch.len() >= 64 {
+                        break;
+                    }
+                }
+                // 统计延迟
+                for order in batch {
+                    let _ = metric_tx_clone.send(order.instant.elapsed());
+                    total_recv += 1;
+                }
+            }
+        }
+    }));
+    drop(metric_tx); // 关闭统计通道生产者端
+
+    // 3. 启动生产者线程（单生产者绑定单分片，无竞争）
+    let mut send_join_handle = Vec::new();
+    for (prod_idx, mut rb_producer) in producers.into_iter().enumerate() {
+        send_join_handle.push(std::thread::spawn(move || {
+            // 预热阶段：发送空消息（不计入统计）
+            for _ in 0..WARMUP_COUNT {
+                let warmup_order = Order {
+                    id: 0,
+                    price: 0.0,
+                    amount: 0,
+                    instant: Instant::now(),
+                };
+                while rb_producer.push(warmup_order.clone()).is_err() {
+                    // spin_loop(); // 缓冲区满时自旋，避免 park
+                }
+            }
+
+            // 正式发送阶段：无竞争写入（Ringbuf 核心优势）
+            for i in 0..ORDER_COUNT {
+                let order = Order {
+                    id: (prod_idx * ORDER_COUNT + i) as i32,
+                    price: (prod_idx * ORDER_COUNT + i) as f64,
+                    amount: (prod_idx * ORDER_COUNT + i) as u32,
+                    instant: Instant::now(),
+                };
+                // 无锁写入，满时轻量自旋
+                while rb_producer.push(order.clone()).is_err() {
+                    // spin_loop();
+                }
+            }
+        }));
+    }
+
+    // 4. 等待生产者线程结束
+    for handle in send_join_handle {
+        handle.join().unwrap();
+    }
+
+    // 5. 等待消费者线程结束
+    for handle in recv_join_handle {
+        handle.join().unwrap();
+    }
+
+    // 6. 统计延迟（与原代码逻辑完全一致）
+    let mut histogram = Histogram::<u64>::new(3).unwrap();
+    for duration in metric_rx {
+        histogram.record(duration.as_micros() as u64).unwrap();
+    }
+
+    // 7. 输出结果（对齐原测试的输出格式）
+    let p99 = histogram.value_at_percentile(99.0);
+    println!("P99 latency: {p99} us");
+    let p90 = histogram.value_at_percentile(90.0);
+    println!("P90 latency: {p90} us");
+    let p50 = histogram.value_at_percentile(50.0);
+    println!("P50 latency: {p50} us");
+    println!("Mean: {} us", histogram.mean());
+    println!("Total count: {}", histogram.len());
+}
+```
+
+测试send=5（release）的结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|5|1|3151 us|4727 us|5103 us|100000|
+|5|1|3115 us|4851 us|5259 us|100000|
+|5|1|1718 us|2667 us|2931 us|100000|
+|5|1|3279 us|5059 us|5531 us|100000|
+|5|1|3533 us|5407 us|5995 us|100000|
+|5|1|3177 us|4855 us|5247 us|100000|
+|5|1|3167 us|4759 us|5323 us|100000|
+|5|1|3109 us|4895 us|5315 us|100000|
+|5|1|2827 us|4479 us|4891 us|100000|
+
+TODO: 可能是因为没有采用分片设计导致接收端效率较低，后续优化测试。

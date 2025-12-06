@@ -174,6 +174,35 @@ fn main() {
 
 ## 其他
 
+### `Cow<T>`
+
+作为Rust性能优化工具箱，`Cow<'a, T>`(Clone-on-Write写时复制)来优化可能需要被修改，但大部分情况下不需要修改，避免不必要的内存分配。存在两种状态：
+
+Borrowed(&'a, T)：以不可变借用的形式持有数据。
+
+Owned(T: Owned)：以拥有所有权的形式持有数据。
+
+例如，我们需要一个函数，它接受一个字符串，移除其中所有不必要的空格。
+
+如何输入是"hello world"，它没有任何不必要的空格，我们不应该执行任何分配，直接返回&str；
+
+如果输入是" hello world ",它需要被修改，必须返回新的String来存储处理后的结果。
+
+```rust
+use std::borrow::Cow;
+fn santitize_whitespace(input: &'static str) -> Cow<'static, str> {
+    if input.starts_with(' ') || input.ends_with(' ') {
+        // 需要修改，分配新的String, 然后返回Owned
+        Cow::Owned(input.trim().to_string())
+    } else {
+        // 无需修改：零分配，直接返回Borrowed
+        Cow::Borrowed(input)
+    }
+}
+```
+
+如果有明显的只读路径才使用；对于实现了Copy trait的类型，其实是没必要用`Cow<T>`的。主要用于避免String,Vec等拷贝产生的开销。
+
 关于智能指针，C++里会经常见到`std::move`, `std::forward`等操作。
 
 ### 引入规则
