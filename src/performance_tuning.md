@@ -886,7 +886,7 @@ Total count: 100000
 100.00    0.018118         148       122         2 total
 ```
 
-但是我们的crossbeam应该是无锁结构才对！代码片段如下。
+但是我们的crossbeam应该是无锁结构才对！crossbeam源码片段如下。
 
 ```rust
     /// Sends a message into the channel.
@@ -993,7 +993,6 @@ Total count: 100000
 crossbeam::channel 的 P99 毛刺本质是高竞争下无锁设计的开销叠加：
 核心矛盾：CAS 竞争 → 自旋 → park/unpark。
 优化核心：减少竞争（分片）> 避免扩容（固定容量）> 缓解缓存问题（对齐）> 批量处理；
-极致场景：SPSC 替代 MPMC，或换用 flume/ringbuf 等专用库（实际测试还是没有crossbeam快）。
 百万级消息场景下，优先通过 “通道分片 + 固定容量 ArrayChannel + 批量处理” 组合，可将 P99 毛刺降低 1~2 个数量级。
 
 核心诉求是「多生产者提升写入效率 + 低延迟无毛刺」，分片 Ringbuf 是最优解；若需快速落地且功能要求高，选Flume的MPSC模式；Crossbeam 仅适合低并发通用场景。
@@ -1147,3 +1146,7 @@ fn main() {
 |5|1|2827 us|4479 us|4891 us|100000|
 
 TODO: 可能是因为没有采用分片设计导致接收端效率较低，后续优化测试。
+
+附crossbeam的性能对比图
+
+![crossbeam性能对比图](images/benchmarks_plot.png)
