@@ -203,6 +203,96 @@ fn santitize_whitespace(input: &'static str) -> Cow<'static, str> {
 
 如果有明显的只读路径才使用；对于实现了Copy trait的类型，其实是没必要用`Cow<T>`的。主要用于避免String,Vec等拷贝产生的开销。
 
+### `Pin<T>`
+
+看了官网描述大致了解是解决自引用，细节参考[读懂 Pin，一次搞清 Rust 最难的指针](https://blog.csdn.net/taishanduba/article/details/154617263)。
+
+`Pin<T>`的实现其实就是`!Unpin`类型，表示类型不能随意移动，少数类型(自引用, `Future`, `PhantomPinned`)就是`!Unpin`的。
+
+例如SelfRef
+
+```rust
+struct SelfRef {
+    data: String,
+    ptr: *const String,
+    _pin: PhantomPinned,
+}
+
+fn main() {
+    let x = Box::new(42);
+    let px = Pin::new(x);
+    let moved_px = px;  // ✅ 可以移动
+
+    let y = Box::pin(SelfRef {
+        data: "hello".to_string(),
+        ptr: std::ptr::null(),
+        _pin: PhantomPinned,
+    });
+    // let move_y = y; // ❌ 编译告警
+}
+```
+
+对于Unpin类型，即使使用了Box::pin也可以移动，但是!Unpin类型，被钉住了就无法搬。
+
+那么为什么我们需要自引用呢？
+
+方法访问和内部引用对比
+
+```rust
+struct MyStruct {
+    data: String,
+}
+impl MyStruct {
+    fn slice(&self) -> &str {
+        &self.data
+    }
+}
+
+struct SelfRef {
+    data: String,
+    slice: *const str, // 内部指针
+}
+
+impl SelfRef {
+    fn new(data: &str) -> Self {
+        let mut s = SelfRef {
+            data: data.to_string(),
+            slice: std::ptr::null(),
+        };
+        s.slice = s.data[0..2].as_ptr() as *const str;
+        s
+    }
+
+    fn get_slice(&self) -> &str {
+        unsafe {&*self.slice}
+    }
+}
+
+fn main() {
+    let s = MyStruct {data: "Hello World".into()};
+    println!("{}", s.slice());
+}
+```
+
+以上可以通过Rust borrow checker安全，没有悬挂、简单、可维护。但是每次调用都会生成一个切片，这在高性能/大量数据场景存在overhead。
+而预切片的方式，访问时不需要每次切分，可用于异步/自引用结构，避免在Future状态机poll时重复生成切片。缺点就是使用裸指针，需要unsafe，跳过borrow checker的检查,存在悬挂风险。
+
+总结如下：
+
+- 当使用`async`时,Rust编译器会把它转成一个状态及struct，其字段包括局部变量、状态标记、可能的Waker等。
+- 如果这个状态机在await之后还持有对自身结构体内部字段的引用，那么它就是一个自引用Future。也就是说，它存储了指向自身内容的引用。
+- 若这种Future被移动，那么这些内部引用可能变成了悬挂指针。
+- 因此，为了安全，Rust要求Future必须***先固定地址***,再被`poll`,所以`poll(self: Pin<&mut Self>, ...)`而不是`&mut Self`。
+- 在`Pin<&mut Self>`的约束下，类型系统禁止你再偷偷将Self移动。只有当Self类型实现了`Unpin`时，才允许解除固定操作。
+
+### `std::move`
+
+将左值转换为右值引用，用于移动语义。
+
+### `std::forward`
+
+完美转发，用于将参数的右值属性传递给下一个函数。
+
 关于智能指针，C++里会经常见到`std::move`, `std::forward`等操作。
 
 ### 引入规则
