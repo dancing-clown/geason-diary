@@ -750,8 +750,6 @@ const ORDER_COUNT: usize = 5_000;
 
 目前尝试下来最优为send=5，recv=1的场景，那么分析为什么这种场景下，p50延迟几乎可以为0，p90为微秒级，但p99仍然为百微妙左右。
 
-添加热力图
-
 ```rust
 use crossbeam::channel;
 use std::time::{Duration, Instant};
@@ -843,7 +841,7 @@ fn main() {
 
 多次测试后得到如下热力图
 
-[热力图展示](./images/flamegraph.svg)
+![热力图展示](images/flamegraph.svg)
 
 可以看到当前主要阻塞点为`crossbeam::Sender::send`
 
