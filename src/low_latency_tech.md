@@ -81,3 +81,41 @@ sendfile接口如下
 // count: 指定为fdout和fdin之间传输的字节数。
 ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 ```
+
+[高性能消息传递专题](https://ultramessaging.github.io/thpm/thpm.html)
+
+在TCP用作延迟敏感的应用，需要满足以下两点：
+
+- 所有接收者都能始终跟上发送者的步伐。
+- 网络从不拥堵。
+
+如果无法避免使用TCP，那么最好的做法是：
+
+- 当TCP拥塞时，如果低延迟比数据丢失更重要，可以使用缓冲和非阻塞嵌套字来丢弃数据。
+- 考虑禁用Nagle算法，可以降低延迟但是会牺牲效率。
+- 专用网络避免拥塞
+- 尽量降低内核嵌套字缓冲区大小，以免数据储存在缓冲区中增加延迟。
+
+在UDP丢包场景下，可以通过:
+
+- 设置内核UDP缓冲区大小`sysctl -w net.core.rmem_max=8388608`
+- 设置应用程序的缓冲区大小`setsockopt(...SO_RCVBUF...)`
+
+```bash
+# 修改前
+root@ctp-test:~# cat /proc/sys/net/core/rmem_default
+212992
+root@ctp-test:~# cat /proc/sys/net/core/wmem_default
+212992
+root@ctp-test:~# 
+# 修改后
+dev@FtGaoYiCheng:~$ cat /proc/sys/net/core/rmem_default
+536870912
+dev@FtGaoYiCheng:~$ cat /proc/sys/net/core/wmem_default
+536870912
+dev@FtGaoYiCheng:~$ 
+```
+
+### 无锁队列
+
+[moodycamel](https://moodycamel.com/blog/2014/a-fast-general-purpose-lock-free-queue-for-c++)

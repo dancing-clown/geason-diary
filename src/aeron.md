@@ -4,7 +4,7 @@
 
 目前的技术架构，为减少程序耦合，采用了[`aeron-rs`](https://github.com/UnitedTraders/aeron-rs)进行跨进程间通信；其中采用其共享内存的机制。因为Aeron协议是设计直接跑多种传输介质的，包含了共享内存/IPC, infiniBand/RDMA,UDP,TCP,Raw IP,HTTP,WebSocket,BLE。因此Aeron基于以下假设：
 
-- 传输介质可以是流媒体，例如 TCP 或 RDMA，而没有固有的帧边界。
+- 传输介质可以是流媒体，例如TCP或RDMA，而没有固有的帧边界。
 - 传输介质可能仅具有单播模式。
 - 长度为 16 位及以上的字段采用小端序。这主要是为了在对性能要求较高的平台上提高效率。由于字节被视为原子单位，因此无需考虑子字节序。
 
@@ -121,3 +121,367 @@ rate_per_sec 每秒发送条数 = 10000
 如下图所示
 
 ![压测结果展示](images/stress_test.png)
+
+### 高频场景推荐启动命令（后台运行+核心参数调优）
+
+```bash
+nohup ./aeronmd \
+  -Daeron.dir=/dev/shm/aeron \                  # 共享内存目录（/dev/shm 是内存文件系统，比磁盘快100倍）
+  -Daeron.ipc.mode=mmap \                       # IPC模式用mmap（默认，确保用户态零拷贝）
+  -Daeron.udp.send.buffer.size=268435456 \      # UDP发送缓冲区256MB（默认仅2MB，避免高吞吐下缓冲区满）
+  -Daeron.udp.receive.buffer.size=268435456 \   # UDP接收缓冲区256MB
+  -Daeron.log.buffer.size=1073741824 \          # 日志缓冲区1GB（单段，默认64MB，适配10万+/秒订单吞吐）
+  -Daeron.log.file.delete.on.exit=true \        # 进程退出时删除日志文件，避免内存泄漏
+  -Daeron.publication.linger.time=0 \           # 发布者linger时间0ms（立即发送，降低延迟）
+  -Daeron.subscription.linger.time=0 \          # 订阅者linger时间0ms（立即接收）
+  -Daeron.driver.threading.mode=DEDICATED \     # 驱动线程模式：专用线程（避免共享线程调度抖动）,默认shared模式  
+  -Daeron.driver.sender.thread.id=1 \           # Sender线程绑定CPU核心1
+  -Daeron.driver.receiver.thread.id=2 \         # Receiver线程绑定CPU核心2
+  -Daeron.driver.archive.thread.id=3 \          # Archive线程绑定CPU核心3
+  -Daeron.heartbeat.interval=1000 \             # 心跳间隔1秒（减少心跳开销，高频场景无需短心跳）
+  -Daeron.error.log.level=ERROR \               # 仅记录ERROR日志，避免日志IO拖慢性能
+> aeronmd.log 2>&1 &
+```
+
+|参数|作用|
+|---|---|
+|aeron.dir=/dev/shm/aeron|共享内存放在内存文件系统，避免磁盘IO，IPC模式下消息传递延迟＜1μs|
+|udp.send/receive.buffer.size|扩大UDP缓冲区，避免高吞吐（如10万订单/秒）下包丢失，同时减少内核态/用户态拷贝|
+|log.buffer.size=1GB|日志缓冲区是Aeron的核心环形缓冲区，扩大后可容纳更多待处理消息，避免生产者阻塞|
+|linger.time=0|关闭linger（默认50ms），消息立即发送/接收，牺牲少量吞吐量换极致延迟|
+|threading.mode=DEDICATED|驱动用专用线程（发送/接收/归档各一个线程），避免线程调度导致的延迟抖动|
+
+内核配置如下
+
+```bash
+# 1. 修改内核参数
+cat >> /etc/sysctl.conf << EOF
+# Aeron 高频调优
+net.core.rmem_max = 268435456        # 最大UDP接收缓冲区（与aeronmd配置一致）
+net.core.wmem_max = 268435456        # 最大UDP发送缓冲区
+net.core.rmem_default = 268435456    # 默认UDP接收缓冲区
+net.core.wmem_default = 268435456    # 默认UDP发送缓冲区
+net.ipv4.tcp_mem = 268435456 268435456 268435456  # TCP内存（备用，Aeron主要用UDP）
+net.ipv4.udp_mem = 268435456 268435456 268435456  # UDP内存限制
+vm.max_map_count = 2000000           # 最大内存映射数（Aeron用mmap，默认65530不够）
+vm.swappiness = 0                    # 禁用swap（避免共享内存换页，导致延迟陡增），默认60
+fs.memory.max = 10737418240          # /dev/shm最大容量10GB（确保aeron.dir有足够空间）
+EOF
+
+# 2. 生效参数
+sysctl -p
+
+# 3. 调整文件句柄限制（避免Aeron打开过多文件描述符）
+cat >> /etc/security/limits.conf << EOF
+* soft nofile 1048576
+* hard nofile 1048576
+EOF
+
+# 4. 立即生效文件句柄（当前会话）
+ulimit -n 1048576
+```
+
+注意一定要禁用swap,否则会有磁盘极速抖动。
+
+关于threading_mode大致情况如下
+
+|模式名称|英文全称|核心原理|资源占用|延迟/抖动特性|
+|INLINE|内联模式|驱动的所有操作（发送/接收）直接在应用线程内执行，无独立驱动线程|极低|延迟极不稳定（易被阻塞）|
+|SHARED|共享模式|驱动的所有操作共享一个线程池（默认1-2线程），多应用共享线程资源|低|延迟中等，抖动较大|
+|DEDICATED|专用模式|驱动的核心操作（发送、接收、归档、计时）各分配独立的专用线程|中|延迟极低，抖动极小（纳秒级）|
+|OFFLOAD|卸载模式|基础操作（发送/接收）用SHARED，归档/重传等耗时操作卸载到专用线程|中|延迟中等，抖动低于 SHARED|
+
+### DEDICATED 模式的核心优势（完美适配高频）
+
+DEDICATED 模式为驱动的每个核心操作分配独立的专用线程，且这些线程可绑定到独占的CPU核心（避免调度），从根源上消除线程切换和任务排队的开销：
+
+线程模型：“一操作一线程”，无资源竞争
+
+DEDICATED 模式下，Aeron Media 会创建 3个专用线程（可配置）：
+
+- Sender Thread：仅处理消息发送（如订单状态上报）；
+- Receiver Thread：仅处理消息接收（如策略发单）；
+- Archive Thread：仅处理日志归档（可选）；
+- Timer Thread：仅处理心跳 / 超时（可选）。
+
+每个线程只做一件事，无任务切换，CPU 缓存命中率接近 100%（高频场景下缓存命中是延迟的核心影响因素）。
+
+其他模式
+
+- INVOKER: 不使用线程，客户端调用MediaDriver.Context.driverAgentInvoker()来完成任务。
+- SHARED：共用一个线程。
+- SHARED_NETWORK：Sender和Reciver使用一个线程，Conductor单独使用一个线程。
+- DEDICATED：每个操作使用一个专用线程。
+
+### Idle Strategies
+
+目前提供两种策略来在空闲时
+
+- BusySpinIdleStrategy ：在空闲时忙等，无上下文切换，延迟极低（纳秒级）。
+- YieldingIdleStrategy ：在空闲时让出CPU时间片，允许其他线程运行，延迟中等（微秒级）。
+
+LowLatencyMediaDriver 会给 Conductor 使用 BusySpinIdleStrategy; Sender和Reciver使用NoOpIdleStrategy。并且使用DEDICATED模式。某些场景下Reciver也可以使用 BusySpinIdleStrategy来达到比较低的延迟。
+
+### aeron.mtu.length
+
+默认值其实就可以，如果大于接口的MTU值会导致数据报碎片化。并且结合rmem_max和wrem_max进行配置。
+
+### vm.max_map_count
+
+|Aeron 组件|对应的 mmap 区域数量|高频场景下的映射数|
+|---|---|---|
+|共享内存环形缓冲区（Log Buffer）|每个缓冲区至少1个（分片则多段对应多个）|1GB缓冲区拆分为16段→16个mmap 区域|
+|CNC 文件（Control-Network-Control）|1个（存储 Aeron 驱动的控制信息）|固定1个|
+|Publication/Subscription|每个发布/订阅通道至少1个|对接 10 个策略节点 + 5 个券商 → 至少 15 个|
+|Aeron Cluster 日志归档|每个集群节点至少2个|3 节点集群→6个|
+
+```bash
+# 查看系统当前配置
+sysctl vm.max_map_count
+
+# 查看指定进程（如aeronmd）的实际mmap区域数量（关键验证）
+cat /proc/$(pidof aeronmd)/maps | wc -l
+# 输出示例：1258 → 说明aeronmd当前用了1258个mmap区域，远低于200万上限
+```
+
+等我们完成了上述修改后，对aeron进行之前的测试。其中将原本使用的idleStrategy从Sleep切换为Spin。
+
+### Aeron + Cap'n Proto 延迟测量示例（单进程两线程）
+
+aeron启动使用如下参数。
+
+```bash
+/root/aeron/bin/aeronmd -DAERON_DIR=/dev/shm/aeron/ \
+  -Daeron.log.file.delete.on.exit=true \
+  -Daeron.publication.linger.time=0  \
+  -Daeron.subscription.linger.time=0 \
+  -Daeron.driver.threading.mode=DEDICATED \
+  -Daeron.driver.sender.thread.id=1 \
+  -Daeron.driver.receiver.thread.id=2 \
+  -Daeron.driver.archive.thread.id=3 \
+  -Daeron.heartbeat.interval=1000 \
+  -Daeron.error.log.level=ERROR
+```
+
+依赖
+
+```toml
+[package]
+name = "aeron_capnp_latency"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aeron-rs = "0.1.8"
+capnp = "0.23.0"
+hdrhistogram = "7"
+
+[build-dependencies]
+capnpc = "0.23.2"
+```
+
+创建 Cap'n Proto的表格
+
+```capnp
+@0xb3e9b4e7fd4e3c9a;
+
+struct LatencyMsg {
+  sendTimeNs @0 :Int64;
+  seq @1 :UInt64;
+}
+```
+
+build.rs如下。
+
+```rust
+fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    capnpc::CompilerCommand::new()
+        .src_prefix("schema")
+        .output_path("src")
+        .file("schema/latency.capnp")
+        .run()?;
+    Ok(())
+}
+```
+
+src/main.rs
+
+```rust
+use aeron_rs::aeron::Aeron;
+use aeron_rs::concurrent::atomic_buffer::AtomicBuffer;
+use aeron_rs::concurrent::logbuffer::header::Header;
+use aeron_rs::context::Context;
+use aeron_rs::publication::Publication;
+use aeron_rs::subscription::Subscription;
+use aeron_rs::utils::types::Index;
+use hdrhistogram::Histogram;
+use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
+mod latency_capnp;
+use aeron_rs::concurrent::strategies::Strategy;
+
+// 默认10w条突发数据
+const MSG_COUNT: u64 = 100_000;
+static AERON_DIR: &str = "/dev/shm/aeron";
+static AERON_CHANNEL: &str = "aeron:ipc";
+const AERON_STREAM_ID: i32 = 1;
+const BATCH_SIZE: i32 = 64;
+static MONO_EPOCH: OnceLock<Instant> = OnceLock::new();
+
+fn now_duration() -> Duration {
+    let base = *MONO_EPOCH.get_or_init(Instant::now);
+    base.elapsed()
+}
+
+fn encode(send_ns: i64, seq: u64) -> Vec<u8> {
+    let mut message = ::capnp::message::Builder::new_default();
+    let mut root = message.init_root::<crate::latency_capnp::latency_msg::Builder>();
+    root.set_send_time_ns(send_ns);
+    root.set_seq(seq);
+    let mut buf = Vec::new();
+    ::capnp::serialize::write_message(&mut buf, &message).unwrap();
+    buf
+}
+
+fn decode(buf: &[u8]) -> (i64, u64) {
+    let mut s = buf;
+    let r = ::capnp::serialize::read_message_from_flat_slice(
+        &mut s,
+        ::capnp::message::ReaderOptions::new(),
+    )
+    .unwrap();
+    let root = r
+        .get_root::<crate::latency_capnp::latency_msg::Reader>()
+        .unwrap();
+    (root.get_send_time_ns(), root.get_seq())
+}
+
+fn main() {
+    let aeron_dir = AERON_DIR;
+    let channel = AERON_CHANNEL;
+    let stream_id: i32 = AERON_STREAM_ID;
+    let total_msgs: u64 = MSG_COUNT;
+    let mut ctx = Context::new();
+    ctx.set_aeron_dir(aeron_dir.to_string());
+    let mut aeron = Aeron::new(ctx).unwrap();
+    let channel_c = std::ffi::CString::new(channel).unwrap();
+    let pub_id = aeron.add_publication(channel_c.clone(), stream_id).unwrap();
+    let sub_id = aeron
+        .add_subscription(channel_c.clone(), stream_id)
+        .unwrap();
+    let pub_arc: Arc<std::sync::Mutex<Publication>> = loop {
+        match aeron.find_publication(pub_id) {
+            Ok(p) => break p,
+            Err(_) => {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    };
+    let sub_arc: Arc<std::sync::Mutex<Subscription>> = loop {
+        match aeron.find_subscription(sub_id) {
+            Ok(s) => break s,
+            Err(_) => {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    };
+
+    let received = Arc::new(AtomicU64::new(0));
+    let done = Arc::new(AtomicBool::new(false));
+    let recv = {
+        let sub = sub_arc.clone();
+        let total = total_msgs;
+        let received = received.clone();
+        let done = done.clone();
+        thread::spawn(move || {
+            let mut latencies = Vec::with_capacity(total as usize);
+            let idle_strategy = aeron_rs::concurrent::strategies::BusySpinIdleStrategy::default();
+            loop {
+                let mut handler =
+                    |buffer: &AtomicBuffer, _offset: Index, length: Index, _header: &Header| {
+                        let view = buffer.view(_offset, length);
+                        let slice =
+                            unsafe { std::slice::from_raw_parts(view.buffer(), length as usize) };
+                        let (send_ns, _seq) = decode(slice);
+                        let now = now_duration();
+                        let send = Duration::from_nanos(send_ns as u64);
+                        let lat = now.saturating_sub(send);
+                        latencies.push(lat.as_nanos() as u64);
+                        received.fetch_add(1, Ordering::Relaxed);
+                    };
+                let len = sub.lock().unwrap().poll(&mut handler, BATCH_SIZE);
+                let _ = &idle_strategy.idle_opt(len);
+
+                if done.load(Ordering::Relaxed) && received.load(Ordering::Relaxed) >= total {
+                    break;
+                }
+            }
+            latencies
+        })
+    };
+
+    while !sub_arc.lock().unwrap().is_connected() {
+        thread::sleep(Duration::from_millis(10));
+    }
+    let sender = {
+        let pub_ = pub_arc.clone();
+        thread::spawn(move || {
+            let total = total_msgs;
+            let mut seq = 0;
+            while seq < total {
+                let ts_ns = now_duration().as_nanos() as i64;
+                let mut buf = encode(ts_ns, seq);
+                let abuf = aeron_rs::concurrent::atomic_buffer::AtomicBuffer::wrap_slice(&mut buf);
+                let _ = pub_.lock().unwrap().offer(abuf);
+                seq += 1;
+            }
+        })
+    };
+    let _ = sender.join();
+    done.store(true, Ordering::SeqCst);
+    let latencies = recv.join().unwrap();
+    let mut h = Histogram::<u64>::new(3).unwrap();
+    for v in latencies {
+        let _ = h.record(v);
+    }
+    let p50 = h.value_at_percentile(50.0);
+    let p90 = h.value_at_percentile(90.0);
+    let p99 = h.value_at_percentile(99.0);
+    println!("p50 {} ns", p50);
+    println!("p90 {} ns", p90);
+    println!("p99 {} ns", p99);
+    println!("mean {} ns", h.mean());
+    println!("count {}", h.len());
+}
+```
+
+运行测试结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|1|1|1143 ns|1543 ns|3427 ns|100000|
+|1|1|1093 ns|1864 ns|11759 ns|100000|
+|1|1|1081 ns|1413 ns|5603 ns|100000|
+|1|1|862 ns|1312 ns|3377 ns|100000|
+|1|1|1032 ns|1684 ns|8687 ns|100000|
+|1|1|832 ns|1302 ns|7847 ns|100000|
+|1|1|833 ns|1363 ns|7535 ns|100000|
+|1|1|1072 ns|1504 ns|7567 ns|100000|
+|1|1|842 ns|1352 ns|7627 ns|100000|
+|1|1|1012 ns|1323 ns|8175 ns|100000|
+
+参数切换后，测试结果如下：
+
+|发送线程数量|接受线程数量|p50|p90|p99|数据量|
+|---|---|---|---|---|---|
+|1|1|1021 ns|1554 ns|6403 ns|100000|
+|1|1|1011 ns|1513 ns|10551 ns|100000|
+|1|1|841 ns|1162 ns|3387 ns|100000|
+|1|1|1022 ns|1503 ns|6955 ns|100000|
+|1|1|852 ns|1202 ns|4591 ns|100000|
+|1|1|842 ns|1192 ns|5803 ns|100000|
+
+仍然存在较大的毛刺
