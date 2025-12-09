@@ -485,3 +485,37 @@ fn main() {
 |1|1|842 ns|1192 ns|5803 ns|100000|
 
 仍然存在较大的毛刺
+
+```bash
+sudo strace -c ./aeron_capnp_latency
+^Cstrace: Process 1576000 detached
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 99.91    1.229840          29     42367         4 futex
+  0.02    0.000292          15        19           mmap
+  0.01    0.000140          23         6           openat
+  0.01    0.000114          14         8           mprotect
+  0.01    0.000111          15         7           read
+  0.00    0.000056          56         1           clone3
+  0.00    0.000055           9         6           close
+  0.00    0.000054          10         5           newfstatat
+  0.00    0.000041           6         6           rt_sigaction
+  0.00    0.000039          13         3           statx
+  0.00    0.000038          12         3           brk
+  0.00    0.000037           9         4           pread64
+  0.00    0.000021          21         1           munmap
+  0.00    0.000021           7         3           rt_sigprocmask
+  0.00    0.000021          21         1         1 access
+  0.00    0.000020          10         2         1 arch_prctl
+  0.00    0.000018           9         2           prlimit64
+  0.00    0.000017          17         1           poll
+  0.00    0.000017           8         2           sigaltstack
+  0.00    0.000015           7         2           getrandom
+  0.00    0.000009           9         1           sched_getaffinity
+  0.00    0.000009           9         1           rseq
+  0.00    0.000008           8         1           set_tid_address
+  0.00    0.000008           8         1           set_robust_list
+  0.00    0.000000           0         1           execve
+------ ----------- ----------- --------- --------- ------------------
+100.00    1.231001          28     42454         6 total
+```
