@@ -1,4 +1,4 @@
-# protobuf in Rust
+# gRPC in Rust
 
 build-dependencies采用`protoc-rust`，dependencies的crate是`protobuf`。
 
@@ -125,6 +125,8 @@ tonic = "0.10"
 prost = "0.12"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
 [build-dependencies]
 tonic-build = "0.10"
@@ -143,8 +145,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .out_dir("src/generated")
         // 保留 oneof 字段的原始形式
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
-        // 确保 oneof 枚举也被正确处理
-        .field_attribute(".", "#[serde(flatten)]")
         .compile(
             &["proto/service.proto"],
             &["proto"],
@@ -282,28 +282,87 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 客户端实现
 
 ```rust
-use example::example_service_client::ExampleServiceClient;
-use example::{MessageRequest, LoginData, message_request};
+mod generated;
+
+use tonic::{transport::Server, Request, Response, Status};
+use generated::example::example_service_server::{ExampleService, ExampleServiceServer};
+use generated::example::{MessageRequest, MessageResponse, message_request};
+use tracing::info;
+
+pub struct MyExampleService;
+
+#[tonic::async_trait]
+impl ExampleService for MyExampleService {
+    async fn handle_message(
+        &self,
+        request: Request<MessageRequest>,
+    ) -> Result<Response<MessageResponse>, Status> {
+        let req = request.into_inner();
+
+        // 模式匹配处理 oneof 类型
+        let result = match req.data {
+            Some(message_request::Data::Login(login_data)) => {
+                info!("Login: user={}", login_data.username);
+                "Login successful"
+            }
+            Some(message_request::Data::Logout(logout_data)) => {
+                info!("Logout: session={}", logout_data.session_id);
+                "Logout successful"
+            }
+            Some(message_request::Data::Query(query_data)) => {
+                info!("Query: {}", query_data.query_string);
+                "Query processed"
+            }
+            None => {
+                return Err(Status::invalid_argument("No data provided"));
+            }
+        };
+
+        let response = MessageResponse {
+            request_id: req.request_id,
+            success: true,
+            message: result.to_string(),
+        };
+
+        Ok(Response::new(response))
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ExampleServiceClient::connect("http://[::1]:50051").await?;
+    let addr = "[::1]:50051".parse()?;
+    let service = MyExampleService;
 
-    // 构造带有 oneof 字段的请求
-    let request = tonic::Request::new(MessageRequest {
-        request_id: 123,
-        data: Some(message_request::Data::Login(LoginData {
-            username: "alice".to_string(),
-            password: "secret123".to_string(),
-        })),
-    });
-
-    let response = client.handle_message(request).await?;
-    println!("Response: {:?}", response.into_inner());
+    Server::builder()
+        .add_service(ExampleServiceServer::new(service))
+        .serve(addr)
+        .await?;
 
     Ok(())
 }
 ```
+
+### gRPC性能测试
+
+macOS安装压测工具[`ghz`](https://ghz.sh/docs/install)。
+
+```bash
+brew install ghz
+ghz --insecure --proto ./proto/service.proto --call example.ExampleService.HandleMessage -d '{"request_id": 1, "login": {"username": "test", "password": "password"}}' -c 500 -z 10s localhost:50051
+```
+
+测试结果如下所示
+
+|场景|并发连接数 (-c)|QPS (Requests/sec)|平均延迟 (Average)|P99延迟|说明|
+|---|---|---|---|---|---|---|
+｜单线程|1｜~12911|0.05ms|0.08 ms|延迟极低，吞吐量差距较大|
+|匹配核心数|12|~52,381|0.17 ms|0.38 ms|延迟极低，系统未饱和|
+|高并发|50|~59,226|0.73 ms|1.30 ms|QPS 提升，延迟略微增加|
+|超高并发 200|~65,073|2.81 ms|5.51 ms|QPS 继续提升，延迟开始明显增加|
+|极限并发 500|~70,571|6.45 ms|12.29 ms|吞吐量最高，但延迟显著增加，出现连接错误|
+|aeron单线程|1|NA，突发1.2w条|1032ns|51711ns|延迟极低，但毛刺严重|
+
+这里还是和共享内存对比了下，共享内存都在微秒级别
 
 ### Oneof 类型的最佳实践
 

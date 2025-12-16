@@ -70,7 +70,7 @@ AIO（Asynchronous I/O）:异步非阻塞模型，基于事件回调或Future机
 - sendfile：sendfile不再有用户态缓冲区的概念，当然还是需要从内核态缓冲区拷贝到socket缓冲区，因此还是2次DMA+1次CPU拷贝，但只有2次上下文切换。
 - 带有DMA收集拷贝功能的sendfile：用户进程调用`sendfile()`, DMA利用scatter将数据从硬盘拷贝到读缓冲区离散存储，CPU将读缓冲区的文件描述符和数据长度发送到socket缓冲区，DMA根据socket中的文件描述符和数据长度，使用scatter/gather将数据从内核缓冲区拷贝到网卡层。因此是2次上下文切换，2次DMA拷贝。
 
-以上理解参考[零拷贝详解](https://cloud.tencent.com/developer/article/1922497)。
+以上理解参考[零拷贝详解](https://cloud.tencent.com/developer/article/1922497)或[零拷贝的实现原理](https://www.cnblogs.com/vipstone/p/17993987)。
 
 sendfile接口如下
 

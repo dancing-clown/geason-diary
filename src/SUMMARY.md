@@ -15,7 +15,7 @@
 - [第九章 Aeron](./aeron.md)
 - [第十章 FFI](./foreign_function_interface.md)
 - [第十一章 低延迟技术](./low_latency_tech.md)
-- [第十二章 protobuf in Rust](./protobuf.md)
+- [第十二章 gRPC in Rust](./grpc.md)
 - [第十三章 池化案例](./pool_case.md)
 - [第十四章 Redis](./redis.md)
 - [第十五章 Kafka](./kafka.md)

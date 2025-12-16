@@ -173,3 +173,34 @@ impl<'a, T> Drop for LockGuard<'a, T> {
 
 原则上，Acquire用于读取，Release用于写入。但是由于有些原子操作同时拥有读取和写入的功能，此时就需要使用AcqRel来设置内存顺序了。在内存屏障中被写入的数据，都可以被其他线程读取到，不会有CPU缓存的问题。
 更准确地说：Acquire 约束“之后”的内存访问，Release 约束“之前”的内存访问；读改写操作使用 AcqRel。数据的可见性要求存在一条 release→acquire 的同步边：只有当 Acquire 读到了由 Release 写入的值，Release 之前的写入才对该线程可见；否则并不保证全局可见性。
+
+## ABA问题
+
+几乎讨论原子就会讨论到无锁队列，而无锁队列/栈又是一个比较经典的问题，下面对该问题进行一个自我理解介绍。
+
+无锁栈主要是利用原子指针和CAS原子操作来实现无锁入栈/出栈的。其结构如C++的`std::atomic<Node *>`或者Rust的`AtomicPtr<Node>`。
+
+假设当前有一个无锁栈`head`->NodeA->NodeB->null。
+
+线程1执行出栈操作：
+
+- 读取`head`的当前值，记录预期值expect = &NodeA
+- 读取NodeA的next指针，记录next为&NodeB
+- 准备执行CAS(&head, expect, next) 把head从NodeA指向NodeB，完成出队
+- 此时线程1被CPU调度挂起（时间片耗尽），CAS暂未执行
+
+线程2此时操作：
+
+- 出栈NodeA: 队列变成了 head -> NodeB -> null
+- 释放NodeA：delete NodeA
+- 入栈新节点NodeA'：线程2新建一个节点，记为NodeA',恰好复用NodeA的堆地址，此时链表为 head -> NodeA' -> NodeB -> null
+
+问题点：
+
+- 此时线程1拿到时间片，尝试执行CAS(&head, expect, next)，但是expect已经不是&NodeA了，而是&NodeA'，但是CAS比较的是地址，因此会将非NodeA节点的NodeA'删除，造成队列错误。
+
+解决方法：
+
+- 在指针高位设置一个版本号，每个指针取出来进行版本校验；风险在于后续兼容升级，如果升级后指针长度增加，就会导致指针被写坏，引发系统风险；
+- EBR，节点出队后，不立即进行释放，而是等待CAS执行一定周期后进行释放；
+- RCU，优先不申请新节点，而是先用旧节点地址，从而最大提升复用率

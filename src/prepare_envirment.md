@@ -154,4 +154,8 @@ rustup update stable
 
 ```bash
 rustup show rustup default 1.88.0
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov
+cargo llvm-cov --version
+cargo llvm-cov --workspace --output-path target/output.html
 ```
