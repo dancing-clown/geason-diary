@@ -32,7 +32,7 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="2Jzl4GPxLGe_gIh9_Q1f-6" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;" value="C brige" vertex="1">
+        <mxCell id="2Jzl4GPxLGe_gIh9_Q1f-6" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;" value="C bridge" vertex="1">
           <mxGeometry height="80" width="80" y="70" as="geometry" />
         </mxCell>
         <mxCell id="2Jzl4GPxLGe_gIh9_Q1f-13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="counter trader" vertex="1">
@@ -131,6 +131,42 @@
         <mxCell id="2Jzl4GPxLGe_gIh9_Q1f-45" connectable="0" parent="2Jzl4GPxLGe_gIh9_Q1f-44" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="common trait" vertex="1">
           <mxGeometry relative="1" x="-0.0208" y="3" as="geometry">
             <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-2" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="老接入架构" vertex="1">
+          <mxGeometry height="30" width="90" x="10" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-3" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="新接入架构" vertex="1">
+          <mxGeometry height="30" width="90" x="20" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-4" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-480" y="240" as="sourcePoint" />
+            <mxPoint x="640" y="240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-6" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-480" y="600" as="sourcePoint" />
+            <mxPoint x="-480" y="40" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-9" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-480" y="40" as="sourcePoint" />
+            <mxPoint x="640" y="40" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-10" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="-480" y="600" as="sourcePoint" />
+            <mxPoint x="640" y="600" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="688SIBB2Zds5R8P8M2St-11" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="640" y="600" as="sourcePoint" />
+            <mxPoint x="640" y="40" as="targetPoint" />
           </mxGeometry>
         </mxCell>
       </root>
