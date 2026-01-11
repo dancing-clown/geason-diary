@@ -468,3 +468,103 @@ private:
     CacheStorage *cache_storage_;
 }
 ```
+
+## 类型状态模式
+
+它是一种API设计模式，将对象的运行时状态信息编码到对象的编译器类别中：
+
+- 对对象执行的操作，只在对象的特定状态下才能使用
+- 一种在类型级别对这些状态进行编码的方法，使得在错误状态下尝试使用这些操作将无法编译
+- 状态转换操作除了改变运行状态外，还会改变对象的类型级状态，使得先前状态下的操作不再可能。
+
+优势在于：
+
+- 将某些类型的错误从运行时转移到编译时，从而听过更快的反馈
+- 与IDE的交互效果很好，可以避免建议在特定状态下非法的操作
+- 可以消除运行时检查，使代码运行速度更快/提及更小
+
+其本质就是通过状态机实现类级别的状态转移。
+
+参考代码：[Type-Dirven API Design in Rust](https://willcrichton.net/rust-api-type-patterns/typestate.html)
+
+```rust
+struct ReadingFile { inner: File }
+struct EofFile { inner: File }
+
+enum ReadResult {
+    Read(ReadingFile, Vec<u8>),
+    Eof(EofFile)
+}
+
+impl ReadingFile {
+    pub fn open(path: String) -> Option<ReadingFile> {}
+    pub fn read(self) -> ReadResult {
+        match self.inner.read() {
+            Some(bytes) => ReadResult::Read(self, bytes),
+            None => ReadResult::Eof(EofFile { inner: self.inner }),
+        }
+    }
+    pub fn close(self) {
+        self.inner.close();
+    }
+}
+
+impl EofFile {
+    pub fn close(self) {
+        self.inner.close();
+    }
+}
+
+fn main() {
+    let mut file = ReadingFile::open("test.txt".to_owned()).unwrap();
+    loop {
+        match file.read() {
+            ReadResult::Read(f, bytes) => {
+                println!("bytes: {bytes:?}");
+                file = f;
+            }
+            ReadResult::Eof(f) => {
+                f.close();
+                break;
+            }
+        }
+    }
+}
+```
+
+我们更希望handle的是一个类型`file`对象，因此可以将状态编码到类型中。
+
+```rust
+struct Reading;
+struct Eof;
+
+struct File2<State> {
+    inner: File,
+    _state: PhantomData<State>,
+}
+
+enum ReadResult {
+    Read(File2<Reading>, Vec<u8>),
+    Eof(File2<Eof>),
+}
+
+impl File2<Reading> {
+    pub fn open(path: String) -> Option<File2<Reading>> {}
+    pub fn read(self) -> ReadResult {
+        match self.inner.read() {
+            Some(bytes) => ReadResult::Read(self, bytes),
+            None => ReadResult::Eof(File2 { inner: self.inner, _state: PhantomData }),
+        }
+    }
+    pub fn close(self) {
+        self.inner.close();
+    }
+}
+
+impl File2<Eof> {
+    pub fn close(self) {
+        self.inner.close();
+    }
+}
+
+```
