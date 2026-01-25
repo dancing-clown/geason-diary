@@ -1,5 +1,104 @@
 # 代码面试
 
+## 算法实现
+
+### 快速排序
+
+基本思想：（分治）
+先从数列中取出一个数作为key值；
+
+将比这个数小的数全部放在它的左边，大于或等于它的数全部放在它的右边；
+
+对左右两个小数列重复第二步，直至各区间只有1个数。
+
+```cpp
+template<typaname T>
+void quickSort(vector<T> & arr, int left, int right) {
+    if (left >= right) {
+        return;
+    }
+    int i = left, j = right;
+    T key = arr[left];
+    while (i < j) {
+        while (i < j && arr[j] >= key) {
+            --j;
+        }
+        if (i < j) {
+            arr[i] = arr[j];
+            ++i;
+        }
+        while (i < j && arr[i] < key) {
+            ++i;
+        }
+        if (i < j) {
+            arr[j] = arr[i];
+            --j;
+        }
+    }
+    arr[i] = key;
+    quickSort(arr, left, i - 1);
+    quickSort(arr, i + 1, right);
+}
+```
+
+### 插入排序
+
+在要排序的一组数中，假定前n-1个数已经排好序，现在将第n个数插到前面的有序数列中，使得这n个数也是排好顺序的。如此反复循环，直到全部排好顺序。
+
+```cpp
+template<typaname T>
+void insertionSort(vector<T> & arr) {
+    for (int i = 1; i < arr.size(); ++i) {
+        T key = arr[i];
+        int j = i - 1;
+        while (j >= 0 && arr[j] > key) {
+            arr[j + 1] = arr[j];
+            --j;
+        }
+        arr[j + 1] = key;
+    }
+}
+```
+
+### 选择排序
+
+在长度为N的无序数组中，第一次遍历n-1个数，找到最小的数值与第一个元素交换；
+第二次遍历n-2个数，找到最小的数值与第二个元素交换；
+
+```cpp
+template<typaname T>
+void selectionSort(vector<T> & arr) {
+    for (int i = 0; i < arr.size() - 1; ++i) {
+        int minIndex = i;
+        for (int j = i + 1; j < arr.size(); ++j) {
+            if (arr[j] < arr[minIndex]) {
+                minIndex = j;
+            }
+        }
+        if (minIndex != i) {
+            swap(arr[i], arr[minIndex]);
+        }
+    }
+}
+```
+
+### 冒泡排序
+
+两个数比较大小，较大的数下沉，较小的数冒起来。
+
+```cpp
+template<typaname T>
+void bubbleSort(vector<T> & arr) {
+    for (int i = arr.size() - 1; i >= 0; --i) {
+        for (int j = 0; j < i; ++j) {
+            if (arr[j] > arr[j + 1]) {
+                swap(arr[j], arr[j + 1]);
+            }
+        }
+    }
+}
+```
+
 ## 剑指offer
 
 根据剑指offer题目来依次实现每个题目。
