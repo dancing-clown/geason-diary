@@ -26,3 +26,4 @@
 - [第二十章 运维定位](./ops_troubleshooting.md)
 - [第二十一章 剑指offer](./coding_interview.md)
 - [第二十二章 设计模式](./design_pattern.md)
+- [第二十三章 分布式链路性能追踪](./distributed_tracing.md)

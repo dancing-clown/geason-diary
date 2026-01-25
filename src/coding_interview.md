@@ -360,3 +360,74 @@ ListNode *FindFirstCommonNode(ListNode *l1, ListNode *l2) {
 若ai+aj>sum,则只能j-=1。
 
 若ai+aj<sum,则只能i+=1。
+
+### 查找和最小的K对数字
+
+题目：给定两个以 非递减顺序排列 的整数数组 nums1 和 nums2 , 以及一个整数 k 。
+
+定义一对值 (u,v)，其中第一个元素来自 nums1，第二个元素来自 nums2 。
+
+请找到和最小的 k 个数对 (u1,v1),  (u2,v2)  ...  (uk,vk) 。
+
+条件：1 <= nums1.length, nums2.length <= 10^5
+
+-10^9 <= nums1[i], nums2[i] <= 10^9
+
+nums1 和 nums2 均为 升序排列
+
+1 <= k <= 10^4
+
+k <= nums1.length * nums2.length
+
+答案：这里的关键在于如何利用其有序性，如果把这个摊平为二维数组，其实就是找到前K个小的数对。
+
+开始的思路是想用先找到第K个数的值是多少，然后在利用每列的二分查找，来完成所有数对的过滤。
+
+进一步的，我们是否可以通过每列的元素作为起点，来判断后续的元素是否满足要求即可。
+
+这里可以利用C++的优先级队列来完成。
+
+```cpp
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+vector<vector<int>> kSmallestPairs(vector<int>& nums1, vector<int>& nums2, int k) {
+    auto cmp = [&nums1, &nums2](const pair<int, int> & a, const pair<int, int> & b) {
+        return nums1[a.first] + nums2[a.second] > nums1[b.first] + nums2[b.second];
+    };
+
+    int m = nums1.size();
+    int n = nums2.size();
+    vector<vector<int>> ans;
+    priority_queue<pair<int, int>, vector<pair<int, int>>, decltype(cmp)> pq(cmp);
+    // 把每一行的头元素插入
+    for (int i = 0; i < min(k, m); i++) {
+        pq.emplace(i, 0);
+    }
+
+    // 尝试把这一列最小的元素统计进去
+    // 然后将这一个最小的元素后面一个元素插入，这样就能保证其局部的最小
+    while (k-- > 0 && !pq.empty()) {
+        auto [x, y] = pq.top();
+        pq.pop();
+        ans.emplace_back(initializer_list<int>{nums1[x], nums2[y]});
+        if (y + 1 < n) {
+            pq.emplace(x, y + 1);
+        }
+    }
+
+    return ans;
+}
+
+int main() {
+    vector<int> nums1 = {1,7,11};
+    vector<int> nums2 = {2,4,6};
+    int k = 3;
+    auto res = kSmallestPairs(nums1, nums2, k);
+    for (auto &v : res) {
+        cout << v[0] << " " << v[1] << endl;
+    }
+}
+```
