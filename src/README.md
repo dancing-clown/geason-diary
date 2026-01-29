@@ -1,3 +1,5 @@
 # 简介
 
 本人当前是以C++/Rust开发为主的量化开发程序员，本博客主要学习、整理并记录一些Computer Science/Quant System的相关知识。
+
+github [传送门](https://github.com/dancing-clown)
