@@ -905,6 +905,8 @@ RUST_LOG=debug cargo run
 
 参考XX之前介绍的文档[数据库性能优化和ORM切换分享](https://doc.weixin.qq.com/doc/w3_AcUAKwZwAG0CNIYU2D7tPR6GxKmt8?scode=ALMAHgdeAAwGvKzmvuAcUAKwZwAG0)的慢查询，我们可以实时监控对应的查询性能。
 
+可以参考这个链接[Opentelemetry实践分享-Golang篇](https://cloud.tencent.com/developer/article/2318616)。
+
 ## 扩展阅读
 
 [OpenTelemetry 实战指南：从入门到精通 | Rust 应用监控实战](https://mp.weixin.qq.com/s/OOiJMxl1RgoKCVLOCuYxWw)
