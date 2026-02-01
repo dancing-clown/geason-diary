@@ -8,7 +8,7 @@
 
 - 性能调优的核心诉求：低侵入性、低开销、高准确性（避免追踪本身成为性能负担）
 
-[现阶段架构设计](./images/current_distributions.png)
+![现阶段架构设计](./images/current_distributions.png)
 
 例如子单下单场景，从ufes->aeron->risk_control->msg_order_engine->redis->counter，实际的一个业务场景的调用链是很长的；可能各个环节都需要对redis/mysql进行多次的调用访问；各模块调用者负责自己的业务开发，但是对于公共组件的使用几乎不进行维护，而redis的单模型可能因为上层的业务调用导致下层的业务调用延迟很高（假设上层异步执行了scan命令，下游同步执行时会出现极大延迟）。
 
@@ -18,9 +18,9 @@ APM（Application Performance Monitoring）是一种用于监控和分析应用�
 
 [OpenTelemetry](https://opentelemetry.opendocs.io/docs/)，前身为[OpenTracing](https://opentracing.io/specification/)和[OpenCensus](https://opencensus.io/quickstart/cpp/tracing/)合并而来，简称```OTel```，是一个观测性框架和工具包，旨在创建和管理遥测数据，如追踪(Trace)、指标(Metric)和日志(Log)。OpenTelemetry是厂商和工具无关的，意味着它可以与各种观测性后端一起使用，包括像Jaeger和Prometheus这样的开源工具，以及商业解决方案。
 
-[OpenTelemetry架构设计](./images/otel-diagram.svg)
+![OpenTelemetry架构设计](./images/otel-diagram.svg)
 
-[OpenTelementry详细架构设计](./images/opentelemetry_architecture.webp)
+![OpenTelementry详细架构设计](./images/opentelemetry_architecture.webp)
 
 OpenTelemetry就是解决是提供一套标准化接口或协议完成分布式系统的观测性需求。OpenTelemetry关注于遥测数据的生成、收集、管理和导出。存储和可视化数据留给其他工具。
 
@@ -273,7 +273,7 @@ async fn auto_pass_context() {
 
 以下为对应例图。
 
-[Trace与Span层级关系](./images/trace-span-relation.png)
+![Trace与Span层级关系](./images/trace-span-relation.png)
 
 ## 实践检测：接入场景集成OpenTelemetry
 
@@ -282,7 +282,6 @@ async fn auto_pass_context() {
 因为实际项目中迁扯的项目众多，目前仅对接入使用的场景进行归纳，提供使用和分析方法。
 
 - 实现Rust程序（同步/异步）的链路数据采集、导出至Collector
-
 - 该方法可完成真实的多进程调用链路跟踪，且代码侵入性小，性能影响小（至少测试环境可测）
 
 ### 环境准备
@@ -291,7 +290,11 @@ Rust版本、OTel Collector配置、可视化工具（如Jaeger）部署（极�
 
 ### 代码实现（核心展示）
 
-目前msg_order_engine组件的通信方式主要是gRPC和aeron的共享内存两种方式实现消息交互。其中gRPC已有SDK实现，利用gRPC的元数据能力，只需要使用特定SDK的接口即可实现；aeron是基于prost自定义通信协议，完成消息的序列化、反序列化等功能，原生并不支持OTel的上下文传递。
+目前msg_order_engine组件的通信方式主要是gRPC和aeron的共享内存两种方式实现消息交互。
+
+其中gRPC已有SDK实现，利用gRPC的元数据能力，只需要使用特定SDK的接口即可实现；
+
+aeron是基于prost自定义通信协议，完成消息的序列化、反序列化等功能，原生并不支持OTel的上下文传递。
 
 #### aeron代码展示
 
@@ -863,18 +866,16 @@ async fn main() {
 
 ```#[derive (Span)]```的核心作用：
 
-- 自动为 CrossProcessMsg 注入 trace_context: TraceContext 字段（无需手动定义）；
-
-- 自动生成 From<SpanContext> 实现：从当前 Span 提取上下文到消息中；
-
-- 自动生成 TryFrom<&Self> 实现：从消息解析 Trace 上下文；
-- 自动生成 create_span() 方法：一键创建关联父 Span 的子 Span。
+- 自动为 `CrossProcessMsg` 注入 `trace_context`: `TraceContext` 字段（无需手动定义）；
+- 自动生成 `From<SpanContext>` 实现：从当前 `Span` 提取上下文到消息中；
+- 自动生成 `TryFrom<&Self>` 实现：从消息解析 `Trace` 上下文；
+- 自动生成 `create_span()` 方法：一键创建关联父 `Span` 的子 `Span`。
 
 业务代码简化点：
 
-- 无需手动定义 TraceContext 结构体；
-- 无需手动实现序列化 / 反序列化 Trace 上下文；
-- 无需手动拼接 Span 上下文，仅需调用 msg.create_span() 即可关联链路。
+- 无需手动定义 `TraceContext` 结构体；
+- 无需手动实现序列化 / 反序列化 `Trace` 上下文；
+- 无需手动拼接 `Span` 上下文，仅需调用 `msg.create_span()` 即可关联链路。
 
 宏的灵活性：
 
@@ -896,9 +897,10 @@ docker run -d --name jaeger -p 6831:6831/udp -p 16686:16686 jaegertracing/all-in
 RUST_LOG=debug cargo run
 ```
 
-访问[Jaeger UI](http://localhost:16686)
+访问Jaeger UI
 
 能看到 sender-service 和 receiver-service 的完整链路；
+
 消息的 Trace ID 全局一致，Span 自动关联，无需手动处理上下文。
 
 ### 案例分析
@@ -910,4 +912,5 @@ RUST_LOG=debug cargo run
 ## 扩展阅读
 
 [OpenTelemetry 实战指南：从入门到精通 | Rust 应用监控实战](https://mp.weixin.qq.com/s/OOiJMxl1RgoKCVLOCuYxWw)
+
 [揭秘微服务链路盲区：如何用OpenTelemetry+Jaeger实现全栈追踪？](https://blog.csdn.net/LiteCode/article/details/154878918)
