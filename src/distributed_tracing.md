@@ -8,7 +8,7 @@
 
 - 性能调优的核心诉求：低侵入性、低开销、高准确性（避免追踪本身成为性能负担）
 
-[现阶段架构设计](./images/current_distributions.drawio.png)
+[现阶段架构设计](./images/current_distributions.png)
 
 例如子单下单场景，从ufes->aeron->risk_control->msg_order_engine->redis->counter，实际的一个业务场景的调用链是很长的；可能各个环节都需要对redis/mysql进行多次的调用访问；各模块调用者负责自己的业务开发，但是对于公共组件的使用几乎不进行维护，而redis的单模型可能因为上层的业务调用导致下层的业务调用延迟很高（假设上层异步执行了scan命令，下游同步执行时会出现极大延迟）。
 
