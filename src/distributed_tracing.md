@@ -909,6 +909,60 @@ RUST_LOG=debug cargo run
 
 可以参考这个链接[Opentelemetry实践分享-Golang篇](https://cloud.tencent.com/developer/article/2318616)。
 
+#### 可运行示例项目（本仓库）
+
+仓库内提供完整可运行的 OpenTelemetry + Rust 示例：`otel-rust-demo/`。**仅使用 SQLite，本地即可快速测试，无需 MySQL。** 该示例实现「请求 → 查用户 → 查订单」的链路，并**模拟慢查询**，将观测数据导出到 Jaeger，用于在 UI 上发现慢 Span。
+
+**运行步骤：**
+
+- **启动 Jaeger**（需 Docker）：
+
+```sh
+docker run -d --name jaeger -p 6831:6831/udp -p 16686:16686 jaegertracing/all-in-one:latest
+```
+
+- **运行示例**（在仓库根目录下）：
+
+```sh
+    git clone https://github.com/dancing-clown/otel-rust-demo.git
+    cd otel-rust-demo
+    RUST_LOG=info cargo run --release
+```
+
+- **在 Jaeger 查看链路**：浏览器打开 <http://localhost:16686>，Service 选择 `order-service`，点击 “Find Traces”。可看到多条 Trace；其中包含 `slow_query` 的请求耗时明显更长，用于模拟慢查询在 Jaeger 上的展示与发现。
+
+![订单查询过慢](images/jeager-ui.png)
+
+#### 数据库表结构（DDL）
+
+示例**仅使用 SQLite**，表结构与文档中的「子单/用户」场景一致，本地即可快速测试。
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+```
+
+完整 DDL 见项目内 [otel-rust-demo/schema.sql](../otel-rust-demo/schema.sql)。
+
+#### 慢查询在 Jaeger 上的展示与发现
+
+- 示例中部分请求会进入 `slow_query` Span（约 150ms 延迟），用于模拟数据库慢查询。
+- 在 Jaeger 中：同一 Trace 下可看到 `http_request` → `handle_request` → `database_query` / `slow_query` 的层级与耗时；通过**耗时排序**或**按 Operation 筛选**即可快速定位慢查询对应的 Span。
+- 实际生产可将 `database_query` / `slow_query` 替换为真实 ORM 或 SQL 调用，并在 Span 上记录 `db.statement`、`db.system` 等属性，便于在 Jaeger 中按语句或库做分析。
+
 ## 扩展阅读
 
 [OpenTelemetry 实战指南：从入门到精通 | Rust 应用监控实战](https://mp.weixin.qq.com/s/OOiJMxl1RgoKCVLOCuYxWw)
