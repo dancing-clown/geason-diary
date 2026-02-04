@@ -905,7 +905,7 @@ RUST_LOG=debug cargo run
 
 ### 案例分析
 
-参考XX之前介绍的文档[数据库性能优化和ORM切换分享](https://doc.weixin.qq.com/doc/w3_AcUAKwZwAG0CNIYU2D7tPR6GxKmt8?scode=ALMAHgdeAAwGvKzmvuAcUAKwZwAG0)的慢查询，我们可以实时监控对应的查询性能。
+参考XX之前介绍的文档[数据库性能优化和ORM切换分享](./mysql.md)的慢查询，我们可以实时监控对应的查询性能。
 
 可以参考这个链接[Opentelemetry实践分享-Golang篇](https://cloud.tencent.com/developer/article/2318616)。
 
@@ -931,8 +931,6 @@ docker run -d --name jaeger -p 6831:6831/udp -p 16686:16686 jaegertracing/all-in
 
 - **在 Jaeger 查看链路**：浏览器打开 <http://localhost:16686>，Service 选择 `order-service`，点击 “Find Traces”。可看到多条 Trace；其中包含 `slow_query` 的请求耗时明显更长，用于模拟慢查询在 Jaeger 上的展示与发现。
 
-![订单查询过慢](images/jeager-ui.png)
-
 #### 数据库表结构（DDL）
 
 示例**仅使用 SQLite**，表结构与文档中的「子单/用户」场景一致，本地即可快速测试。
@@ -955,13 +953,15 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 ```
 
-完整 DDL 见项目内 [otel-rust-demo/schema.sql](../otel-rust-demo/schema.sql)。
+完整 DDL 见[项目](https://github.com/dancing-clown/otel-rust-demo.git)内 otel-rust-demo/schema.sql。
 
 #### 慢查询在 Jaeger 上的展示与发现
 
 - 示例中部分请求会进入 `slow_query` Span（约 150ms 延迟），用于模拟数据库慢查询。
 - 在 Jaeger 中：同一 Trace 下可看到 `http_request` → `handle_request` → `database_query` / `slow_query` 的层级与耗时；通过**耗时排序**或**按 Operation 筛选**即可快速定位慢查询对应的 Span。
 - 实际生产可将 `database_query` / `slow_query` 替换为真实 ORM 或 SQL 调用，并在 Span 上记录 `db.statement`、`db.system` 等属性，便于在 Jaeger 中按语句或库做分析。
+
+![订单查询过慢](images/jeager-ui.png)
 
 ## 扩展阅读
 
