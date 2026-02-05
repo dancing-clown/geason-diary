@@ -1,8 +1,61 @@
 # MySQL
 
-## 性能
+## 性能分析工具
+
+### 慢查询日志
+
+MySQL的慢查询日志是MySQL提供的日志记录。
+
+查看慢查询日志开启状态： `show VARIABLES like '%shlow_query_log%';`
+
+开启慢查询日志： `set GLOBAL slow_query_log=1;`
+
+查看超时阈值： `show VARIABLES like 'long_query_time%';`
+
+设置查询超时阈值：`set GLOBAL long_query_time=3;`
+
+### 执行计划Explain
+
+执行计划是SQL语句经过查询分析器分析后得到的*抽象语法树*和*相关表的统计信息*作出的一个查询方案，这个方案是由查询优化器自动分析产生的。由于是动态数据采样统计分析出来的结果，所以可能存在偏差。通过*explain*关键字能知道MySQL是如何执行SQL查询的，分析select性能瓶颈，从而改进我们的查询。
+
+|字段|format=json时的名称|含义|
+|---|---|---|
+|id|select_id|select序号，可以理解为SQL执行顺序的标识，有几个select就有几个id|
+|select_type|无|查询类型|
+|table|table_name|表名|
+|partitons|partitons|匹配的分区|
+|type|access_type|访问类型，即MySQL决定如何查找表中的行。常见的有：const > eq_ref > ref > range > index > all|
+|possible_keys|possible_keys|可能的索引选择|
+|key|key|实际选择的索引|
+|key_len|key_length|索引的长度|
+|ref|ref|索引的哪一列被引用了|
+|rows|rows|估计要扫描的行|
+|filtered|filtered|表示符合查询条件的数据百分比|
+|Extra|没有|附加信息，如 Using filesort Using temporary|
+
+### 监控指标
+
+查看连接数： `SHOW PROCESSLIST;`
+
+查看线程情况：`SHOW STATUS LIKE 'Threads_connected';`
+
+查看存储引擎状态：`SHOW ENGINE INNODB STATUS`
+
+锁竞争（信号量）:`SEMAPHORES`
+
+死锁：`LATEST DETECTED DEADLOCK`
+
+## 性能及优化
+
+### 索引基础
 
 主键：必须用自增整型，避免UUID，订单表主键order_id,用户表user_id，确保顺序查询，防止页分裂。
+
+主键索引(PRIMARY KEY)：唯一标识一行数据。
+
+唯一索引（UNIQUE）：保证列值的唯一性。
+
+普通索引（INDEX）加速查询。
 
 联合索引：多条件查询的 “性能核心”，是多个字段组合而成的索引，遵循「最左前缀匹配原则」—— 索引会按字段顺序依次排序，查询时仅能匹配 “从左到右的连续前缀”，跳过前缀会导致索引失效（全表扫描）。
 
@@ -13,6 +66,17 @@ MySQL 8.0 + 支持INCLUDE子句（仅包含字段，不参与排序），低版�
 索引为 idx_user_symbol_include (user_id, symbol) INCLUDE (position_volume, avg_price)
 
 原逻辑：SELECT symbol, position_volume, avg_price FROM position WHERE user_id=123 → 回表（IO 2 次），耗时 10ms；覆盖索引仅扫描索引（IO 1 次），耗时 1ms。
+
+### 索引失效
+
+可能存在查询中无法使用索引来加速查询的情况：
+
+- 对索引列进行运算或函数操作，因为索引存放的是原始值。
+- 在索引列上使用NOT/!=/<>等运算符。这些操作都是范围查询，需要检查所有索引条目，优化器可能认为全表扫描效率更高。
+- 使用`OR`连接非索引列条件。只要OR条件中有一个列没有索引，数据库通常就需要进行全表扫描来满足条件，导致索引失效。
+- 隐式类型转换。例如，资金账号列是`varchar`类型，但查询时写了其他类型，例如`where fund_account = 2026`。数据库会将列转换为数字进行比较，相对于索引列使用了`CAST(fund_account AS INT)`函数，导致索引失效。
+- 模糊查询`LIKE`以通配符开头，例如`LIKE '%GEASON'`无法使用索引，`LIKE 'GEASON%'`能正常使用索引。索引的排列是按照值从头到尾排序的，开头不确定无法利用排序结构进行快速定位。
+- 联合索引未遵循最左前缀匹配规则。例如：索引是`(a,b,c)`，查询条件为`WHERE b = 2`。联合索引的键值是按声明顺序拼接后排序的，必须从最左边的列开始，才能利用这个排序结构。
 
 ## 强一致性
 
