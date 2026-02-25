@@ -27,3 +27,4 @@
 - [第二十一章 剑指offer](./coding_interview.md)
 - [第二十二章 设计模式](./design_pattern.md)
 - [第二十三章 分布式链路性能追踪](./distributed_tracing.md)
+- [第二十四章 算法交易策略](./algorithm_trading.md)
