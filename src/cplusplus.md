@@ -92,9 +92,9 @@ int main (void) {
 
 [原文链接](https://blog.twofei.com/496/)
 
-首先要知道虚表的大致内存布局；可以参考上述链接。
+首先要知道虚表的大致内存布局；可以参考上述链接。下面的结构体和赋值语句是用于说明一种常见 ABI 思路的伪代码，不是可移植的 C++ 实现，也不应直接复制编译。真实的虚表布局由编译器和 ABI 决定。
 
-```C
+```text
 struct CBase2
 {
     int base2_1;
@@ -179,7 +179,7 @@ CBase3_CDerive1_VFTable __vftable_base3_derive1;
 __vftable_base3_derive1.base3_fun1 = base3_derive1_fun1;
 
 CDerive1 d1;
-d1.derive1 = 1;
+d1.derive1_1 = 1;
 
 d1.base1.base1_1 = 11;
 d1.base1.__vfptr = reinterpret_cast<void**>(&__vftable_base1_derive1);
@@ -231,12 +231,12 @@ struct DataHandler : HandlerBase<DataHandler> {
 };
 
 int main() {
-    Derived d;
-    d.interface();
+    OrderHandler handler;
+    handler.on_message();
 }
 ```
 
-这里再区分下static_cast和dynamic_cast的区别吧；总而言之就是dynamic_cast 有 RTTI 查表开销，但是可以保证多态场景下的转换正确（返回nullptr or bad_cast异常抛错），而static_cast用户保证，如果写错了会有ub行为。
+这里再区分下 `static_cast` 和 `dynamic_cast`：`dynamic_cast` 需要多态基类和有效的运行时对象，在满足这些前提时会进行运行时检查，指针转换失败返回 `nullptr`，引用转换失败抛出 `std::bad_cast`。`static_cast` 的向下转换不做运行时检查，由程序员保证对象关系；关系不成立时继续使用转换结果可能触发未定义行为。
 
 ```C++
 struct Base { virtual ~Base() = default; };
@@ -286,17 +286,17 @@ int main() {
 }
 ```
 
-实际会使用ADL在shared_ptr构造时为_weak_this赋值，具体可以参考对应C++标准，对应赋值逻辑判断逻辑可简化为如下代码：
+构造 `shared_ptr` 时，标准库会在满足条件时把对象关联到其可访问且无歧义的 `enable_shared_from_this<T>` 基类子对象。下面只是表达这个关系的伪代码；具体检测方式、成员名称和控制块实现都属于标准库实现细节，并不是 ADL 的固定要求：
 
 ```C++
-if constexpr (std::is_base_of_v<enable_shared_from_this<_Tp>, _Tp>)
+if (has_accessible_unambiguous_enable_shared_from_this_base<T>)
 {
-    auto __base = static_cast<enable_shared_from_this<_Tp>*>(__p);
-    __base->_M_weak_this = *this;
+    auto* base = get_enable_shared_from_this_base(__p);
+    base->weak_this = *this;
 }
 ```
 
-既然说了虚函数表，还有虚基类表，其主要是解决菱形继承（钻石继承）的数据冗余、二义性问题，其存储的是偏移量数组。
+既然说到了虚函数表，还有虚基类相关的实现信息。虚继承用于让菱形继承中的派生对象只保留一份共同虚基类子对象，并解决通过不同继承路径访问基类时的二义性；编译器通常需要额外的偏移或访问信息，但具体是否使用“虚基类表”、表的布局和字段都属于 ABI 实现细节。
 
 ## 内存分配
 
@@ -306,20 +306,23 @@ calloc: 为指定长度的对象，分配能容纳其指定个数的内存。申
 
 realloc: 更改以前分配的内存长度（增加或减少）。当增加长度时，可能需将以前分配区的内容移到另一个足够大的区域，而新增区域内的初始值则不确定。
 
-alloca: 在栈上申请内存。程序在出栈的时候，会自动释放内存。但是需要注意的是，alloca 不具可移植性, 而且在没有传统堆栈的机器上很难实现。alloca 不宜使用在必须广泛移植的程序中。C99 中支持变长数组 (VLA)，可以用来替代 alloca。
+alloca: 某些平台提供的非标准栈式分配接口，通常在当前函数返回时失效，不能把返回的地址交给调用方长期使用。它不可移植，也不应作为 C++ 的常规资源管理方式。C99 的 VLA 是 C 语言特性，不是标准 C++ 特性，且生命周期和语义不等同于 `alloca`；C++ 中应优先使用 `std::array`、`std::vector` 或其他 RAII 类型。
 
-new: 调用分配器分配一块内存，只存放 1 个 T 对象。调用 T::T() 构造 1 次。
+new: 调用分配函数取得足够存储，并对一个对象执行初始化；如果 `T` 是类类型，会调用相应构造函数，如果是标量类型，则遵循默认初始化或值初始化规则。
 
-new T []（数组）:编译器会额外分配一段头部内存，存放数组元素数量 count，用于 delete [] 时知道要调用多少次析构函数。
+new T []（数组）: 对非平凡元素，运行时需要以某种实现方式记录元素数量，以便 `delete[]` 正确调用析构函数；常见实现会使用 array cookie，但标准不保证其存在、位置或布局。
 
 delete: 调用 1 次～T () 析构。将整块内存归还堆。
 
-delete [] ptr（数组释放）:往 ptr 往前偏移，读出头部存储的元素数量 count。循环调用 count 次析构函数。释放整块内存（头部 + 所有元素）。
+delete [] ptr（数组释放）: 按实现记录的信息调用数组元素析构函数并释放对应存储；调用方不应假设需要向指针前方偏移，也不能依赖 array cookie 的具体布局。
 
 会有比较经典的问题：混用会造成哪些问题；哪种场景下混用没有问题？如果避免？
 
 经典错误代码
 ```C++
+#include <memory>
+#include <string>
+
 char* create_buf(bool is_array) {
     if(is_array) return new char[128];
     else return new char;
@@ -330,7 +333,7 @@ char* buffer = new char[1024];
 delete buffer; // 写法错误，只是碰巧不崩溃
 
 // 通常使用智能指针避免；但是遇到异步接口或C接口，需要传递裸指针的话，需要谨慎此部分写法
-std::unique_ptr<string[]> arr = std::make_unique<string[]>(5);
+std::unique_ptr<std::string[]> arr = std::make_unique<std::string[]>(5);
 ```
 
 既然说到了智能指针，这里展开提一下shared_ptr。
@@ -346,15 +349,14 @@ std::unique_ptr<string[]> arr = std::make_unique<string[]>(5);
 ├─ T*        → 堆A(T对象)
 └─ ControlBlock* → 堆B(控制块)
 
-堆B 控制块结构：
-[vptr] [atomic use_count] [atomic weak_count] [deleter] [allocator]
+堆B 控制块结构（概念示意，具体布局由标准库实现决定）：
+[strong_count] [weak_count] [deleter] [allocator]
 
 shared_ptr（栈）
 ├─ 裸指针 → T对象(堆)
 └─ 控制块指针 → 堆控制块：
-   ├ vptr
-   ├ atomic use_count
-   ├ atomic weak_count
+   ├ strong_count
+   ├ weak_count
    ├ deleter
    └ allocator
 ```
@@ -368,19 +370,18 @@ make_shared<T>(Args...) 合并分配（整块连续内存）
 [控制块区域][T 对象区域]
 ```
 
-use_count、weak_count 完整销毁时序（最容易考）
+强引用和弱引用的销毁时序（概念模型；计数名称、是否额外持有隐式弱引用以及控制块函数名都属于实现细节）
 
-设初始 use_count = 2，weak_count = 1
+设有两个 `shared_ptr` 和一个 `weak_ptr` 观察同一个对象：
 
-1. 第一个 shared_ptr 析构：use_count-- → 1，无事；
+1. 第一个 `shared_ptr` 析构：强引用数减一，对象仍然存活；
 
-2. 第二个 shared_ptr 析构：use_count-- → 0
-    执行 _M_dispose()：调用 T 的析构函数，销毁业务对象；
-    此时控制块还保留，因为 weak_count=1；
+2. 第二个 `shared_ptr` 析构：强引用数变为零，调用删除器销毁业务对象；
+    此时控制块仍然保留，因为还有 `weak_ptr`；
 
-3. 后续所有 weak_ptr 析构：weak_count--，直到 weak_count == 0；
+3. `weak_ptr` 析构后，弱引用数减少；
 
-4. 执行 _M_destroy()：释放整块控制块内存。
+4. 当控制块不再被强引用或弱引用需要时，释放控制块内存。
 
 ## 限价订单簿设计
 
@@ -583,7 +584,7 @@ C++20 concept 更适合表达模板约束：
 
 ```cpp
 template <typename T>
-concept Drawable = requires(T value) {
+concept Drawable = requires(const T& value) {
     value.draw();
 };
 
@@ -619,6 +620,37 @@ void render(const T& value) {
 `volatile` 主要用于内存映射寄存器、某些信号处理场景，禁止编译器把访问完全优化掉；它不保证原子性，不建立线程间 happens-before，也不能替代 `std::atomic`。无锁队列需要同时证明原子操作、内存回收、ABA 问题和生产者/消费者数量约束，不能只把 `mutex` 删除就称为无锁。
 
 低延迟场景还要考虑连续内存、缓存局部性、缓存行伪共享、分配器和对象池。`alignas(std::hardware_destructive_interference_size)` 等手段只能解决特定布局问题，必须用基准测试确认收益。
+
+### 4. ABA 问题：CAS 成功不代表状态仍然正确
+
+ABA 是基于 CAS 的无锁算法中的一种状态判断错误。线程 A 读取共享状态为 `A` 后暂停；线程 B 把状态从 `A` 改成 `B`，完成操作后又改回 `A`；线程 A 恢复执行时，看到的值仍然是 `A`，于是 `compare_exchange` 成功。但这个 `A` 已经不是线程 A 之前观察到的那一个状态，中间发生的变化可能已经破坏了线程 A 依赖的链表关系、计数或对象生命周期。
+
+以无锁栈为例：
+
+```text
+初始：head -> node A -> node B
+
+线程 T1：读取 head=A，保存 next=B，然后暂停
+线程 T2：弹出 A，再弹出 B，最后把 A 重新压回栈顶
+现在：head=A，但 A 的 next 或关联状态可能已经变化
+线程 T1：CAS(head, A, B) 成功
+结果：T1 使用了过期的 next=B，可能跳过仍然有效的节点，甚至访问已经回收的节点
+```
+
+ABA 有两个相关但不同的风险：
+
+- **逻辑 ABA**：地址或数值回到了原值，但中间的业务状态已经变化。即使对象尚未释放，也可能破坏链表、计数器或队列状态。
+- **内存回收风险**：线程 T1 仍保存着旧指针时，线程 T2 已经删除并回收对象；分配器随后把同一地址复用给新对象，T1 看到的“相同地址”可能指向完全不同的对象。此时除了 ABA，还可能发生 use-after-free。
+
+常见处理方案需要根据数据结构选择：
+
+1. **指针加版本号（tagged pointer）**：CAS 不只比较指针，还比较版本号；每次状态变化都递增版本。即使指针从 `A` 变成 `B` 再回到 `A`，版本号也不同，旧 CAS 会失败。版本号位数有限时仍需考虑回绕。
+2. **Hazard pointer**：线程在解引用节点前，把正在访问的节点发布到自己的 hazard pointer 中；删除方只有在确认没有线程保护该节点后才能回收。它主要解决安全回收，也能阻止地址复用造成的 ABA，但需要严格遵守“发布保护指针后重新检查”的流程。
+3. **Epoch-based reclamation / RCU**：延迟节点回收，直到所有可能访问旧节点的线程离开对应 epoch。吞吐量较好，但线程长期不退出临界区会延迟回收并增加内存占用。
+4. **有界环形队列的槽位序号**：每个槽位保存代数或序列号，生产者和消费者比较的是“槽位 + 当前代数”，而不只是一个裸指针。这是 bounded MPMC 队列常见的做法，但它是针对该队列布局设计的协议，不是所有无锁结构的通用修复。
+5. **互斥锁或所有权模型**：如果无锁设计的证明和回收成本超过收益，使用锁、单线程事件循环或拥有明确生命周期的消息传递，往往更容易保证正确性。
+
+仅改变 `memory_order` 不能消除 ABA；`acquire/release` 解决的是可见性和 happens-before，`seq_cst` 提供更强的原子操作顺序，但二者都不会自动记录对象版本，也不会替线程完成内存回收。`std::atomic<T*>` 只保证指针本身的原子读写，同样不负责指针指向对象的生命周期。
 
 ## 六、编译、链接、ABI 与 FFI
 
