@@ -464,6 +464,85 @@ public:
   };
 ```
 
+## trade aggregation
+
+Q: 在交易系统中，会有实时将若干个trade聚合成一个tick的需求。在这个问题背景下，希望按照每kTickWindowSizeMs的trades进行聚合，Trade可能因为网络延迟为乱序，但是延迟不高。希望publish出去的tick的延迟尽量低且严格递增。
+
+A: 简单考虑，因为trades存在乱序，所以需要考虑我们的队列最多等待多少时间
+
+```C++
+#include <iostream>
+#include <string>
+using namespace std;
+
+struct Trade {
+    double volume, price; // 成交量和成交价格
+    size_t update_time; // 成交时间，单位为毫秒
+    std::string code; // 合约代码
+    // 自定义排序函数
+    bool operator<(const Trade& other) const {
+        return update_time > other.update_time;
+    }
+};
+
+// 对于每个code，将一段时间内的若干个trades合成一个tick并publish
+struct Tick {
+    double volume;  // trades中volume的和
+    double max_price, min_price; // trades中price的最大值和最小值
+    double first_price, last_price; // 按照trades中的update time, 第一个trade price和最后一个trade price
+    size_t update_time; //最后一笔trade的update_time
+    std::string code;   // 合约代码
+};
+
+class GenerateTickFromTrade {
+public:
+    static const size_t kTickWindowSizeMs;
+    void NotifyTradeEvent(const Trade& trade)
+    {
+        if (pqMaps.find(trade.code) == pqMaps.end()) {
+            pqMaps[trade.code].push(trade);
+        } else {
+            auto &pq = pqMaps.at(trade.code);
+            // 如果比第一个到的都早，直接丢弃
+            if (trade.update_time < pq.top().update_time) {
+                continue;
+            } else {
+                if (trade.update_time - pq.top().update_time > kTickWindowSizeMs) {
+                    const auto &tick = GenerateTick(trade.code);
+                    PublishTick(tick);
+                }
+                pq.push(trade);
+            }
+        }
+    }
+
+    Tick GenerateTick(const std::string &code) {
+        auto& pq = pqMaps[code];
+        Tick res{.min_price= DOUBLE_MAX};
+        while (!pq.empty()) {
+            auto &trade = pq.top();
+            res.volume += trade.volume;
+            res.max_price = max(trade.price, res.max_price);
+            res.min_price = min(trade.price, res.min_price);
+            res.update_time = trade.update_time;
+            res.last_price = trade.price;
+            pq.pop();
+        }
+        return res;
+    }
+
+    // 已实现。希望pulish tick的时间和tick中update_time的延迟尽量小且严格递增
+    void PublishTick(const Tick& tick);
+private:
+    std::unordered_map<std::string, std::priority_queue<Trade>> pqMaps;
+};
+
+int main()
+{
+    return 0;
+}
+```
+
 ## 一、对象模型与多态
 
 ### 1. 封装、继承和多态在 C++ 中如何实现
@@ -710,6 +789,7 @@ gdb -p <PID>
 4. 虚表、虚指针和 `std::string` 的内部布局是实现/ABI 细节，不能直接跨编译器或 FFI 使用。
 5. `new[]` 必须匹配 `delete[]`；“字符数组混用后没崩”仍然是未定义行为。
 6. CRTP 能实现静态多态，但不能替代需要运行时扩展、插件或动态库隔离的动态多态。
+
 ## 九、重点问题的原理拆解
 
 这一节专门回答“为什么”，用于把前面的题目从结论提升到可以推导的程度。
