@@ -1,31 +1,46 @@
-# 目录
+# 编程小记
 
-[简介](README.md)
+[知识地图](README.md)
 
-- [第一章 准备编程环境](./prepare_envirment.md)
-- [第二章 Rust/C++并发编程](./concurrency.md)
-- [第三章 限流算法](./rate_limiter.md)
-- [第四章 Rust In OS](./os/rust_in_os.md)
-- [4.1 基础知识](./os/knownledge.md)
-- [4.2 开发环境](./os/development_environment.md)
-- [第五章 交叉编译](./cross_compile.md)
-- [第六章 Rust/C++ 智能指针](./smart_pointer.md)
-- [第七章 原子操作](./atomic.md)
-- [第八章 性能调优案例](./performance_tuning.md)
-- [第九章 Aeron](./aeron.md)
-- [第十章 FFI](./foreign_function_interface.md)
-- [第十一章 低延迟技术](./low_latency_tech.md)
-- [第十二章 gRPC in Rust](./grpc.md)
-- [第十三章 池化案例](./pool_case.md)
-- [第十四章 Redis](./redis.md)
-- [第十五章 Kafka](./kafka.md)
-- [第十六章 数据结构](./data_structure.md)
-- [第十七章 线程休眠](./thread_sleep.md)
-- [第十八章 期货交易](./futures_trading.md)
-- [第十九章 MySQL](./mysql.md)
-- [第二十章 运维定位](./ops_troubleshooting.md)
-- [第二十一章 剑指offer](./coding_interview.md)
-- [第二十二章 设计模式](./design_pattern.md)
-- [第二十三章 分布式链路性能追踪](./distributed_tracing.md)
-- [第二十四章 算法交易策略](./algorithm_trading.md)
-- [第二十五章 C++](./cplusplus.md)
+# 语言与基础
+
+- [C++](./cplusplus.md)
+- [Rust In OS](./os/rust_in_os.md)
+- [OS 基础知识](./os/knownledge.md)
+- [智能指针](./smart_pointer.md)
+- [FFI](./foreign_function_interface.md)
+- [数据结构](./data_structure.md)
+- [设计模式](./design_pattern.md)
+- [代码面试](./coding_interview.md)
+
+# 并发与性能
+
+- [Rust/C++ 并发编程](./concurrency.md)
+- [原子操作](./atomic.md)
+- [线程休眠](./thread_sleep.md)
+- [限流算法](./rate_limiter.md)
+- [性能调优案例](./performance_tuning.md)
+- [低延迟技术](./low_latency_tech.md)
+- [池化案例](./pool_case.md)
+
+# 系统与工程实践
+
+- [环境搭建](./prepare_envirment.md)
+- [交叉编译](./cross_compile.md)
+- [OpenCV 环境搭建](./opencv.md)
+- [rCore OS 开发环境](./os/development_environment.md)
+- [运维定位](./ops_troubleshooting.md)
+
+# 分布式与基础设施
+
+- [Aeron](./aeron.md)
+- [gRPC in Rust](./grpc.md)
+- [Kafka](./kafka.md)
+- [Redis](./redis.md)
+- [MySQL](./mysql.md)
+- [分布式链路追踪](./distributed_tracing.md)
+
+# 量化与交易系统
+
+- [期货交易](./futures_trading.md)
+- [算法交易策略](./algorithm_trading.md)

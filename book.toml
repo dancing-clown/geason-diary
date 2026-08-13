@@ -1,5 +1,9 @@
 [book]
 authors = ["Geason"]
-language = "en"
+language = "zh"
 src = "src"
 title = "编程小记"
+
+[output.html]
+additional-css = ["theme/knowledge-map.css"]
+additional-js = ["theme/knowledge-map.js"]
