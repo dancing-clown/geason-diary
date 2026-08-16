@@ -5,6 +5,7 @@
 # 语言与基础
 
 - [C++](./cplusplus.md)
+- [Rust](./rust.md)
 - [Rust In OS](./os/rust_in_os.md)
 - [OS 基础知识](./os/knownledge.md)
 - [智能指针](./smart_pointer.md)

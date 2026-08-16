@@ -199,6 +199,72 @@ Rust 标准库集合（参考《Rust 圣经》/《The Rust Programming Language�
 - 有序映射：C++ 默认红黑树；Rust 使用 B-Tree 结构，范围查询与缓存友好
 - 无序映射：两者均为哈希表；C++ 可自定义哈希器；Rust 需实现 `Hash + Eq`
 
+
+|C++ STL|Rust标准容器|底层实现|核心特性|
+|---|---|---|---|
+|std::vector<T>|Vec<T>|连续内存动态数组|尾部O(1)插入;随机访问|
+|std::array<T,N>|[T;N]|栈上固定大小数组|编译器确定长度|
+|std::string|String|u8连续缓冲区|UTF-8可变字符串|
+|std::string_view|&str|只读切片引用|不持有所有权|
+|std::deque<T>|VecDeque<T>|分段数组|头尾高效插入O(1)；近似随机访问|
+|std::list<T>|std::collections::LinkedList<T>|双向链表|极少使用，缓存差|
+|std::map<K,V>|BTreeMap<K,V>|红黑树<->B树|Key有序，支持范围查询|
+|std::unordered_map<K,V>|HashMap<K,V>|哈希表(开链)<->哈希表(线性探测)|无序，平均O(1)查找|
+|std::set<K>|BTreeSet<K>|红黑树<->B树|有序唯一集合|
+|std::unordered_set<K>|HashSet<K>|哈希表|无序唯一集合|
+|std::multimap<K,V>|无标准库类型|有序、允许重复key|可用BTreeMap<K, Vec<V>>模拟|
+|std::multiset<K>|无标准库类型|有序\允许重复值|可用BTreeMap<T, usize>计数模拟|
+|std::stack<T>|无专用容器|适配器|Vec作为底层模拟|
+|std::queue<T>|无专用容器|适配器|VecDeque<T>模拟|
+|std::priority_queue<T>|BinaryHeap<T>|堆|最大堆；Rust可反转Ord实现最小堆|
+
+### std::vector vs Vec
+
+|C++|Rust|说明|
+|---|---|---|
+|vec.push_back(x)|vec.push(x)|尾部追加|
+|vec.pop_back(x)|vec.pop()|尾部弹出(返回Option)|
+|vec.emplace_back(...)|vec.push(...)|构造|
+|vec.resize(n)|vec.resize(n, val)|扩容/截断|
+|vec.clear()|vec.clear()|清空元素，保留容量|
+|vec.reserve(n)|vec.reserve(n)|预分配容量|
+|vec.size()|vec.len()|当前元素数量|
+|vec.capacity()|vec.capacity()|已分配容量|
+|vec[i]|vec[i]|下标访问|
+|vec.begin(), vec.end()|vec.iter()/vec.iter_mut()|迭代器|
+
+### std::map<K, V> vs BTreeMap<K, V>
+
+|C++|Rust|说明|
+|---|---|---|
+|m.find(key)|m.get(&key)|查找，返回引用|
+|m[key]|不存在|C++不存在key会插入默认值；Rust不允许|
+|m.insert({k, v})|m.insert(k,v)|插入/覆盖|
+|m.erase(it)|m.remove(&k)|删除key|
+|m.lower_bound(k)|m.range(k..)|大于等于k的范围起点|
+|m.upper_bound(k)|m.range((k, Bound::Excluded)..)|大于k的范围起点|
+|m.count(k)|m.contains_key(&k)|是否存在key|
+|m.begin(), m.end()|m.iter()|有序遍历|
+
+### 算法库比较
+
+|C++|Rust|
+|---|---|
+|std::for_each|.for_each()|
+|std::transfrom|.map()|
+|std::filter|.filter()|
+|std::copy_if|.filter().collect()|
+|std::sort|.sort()|
+|std::reverse|.rev()|
+|std::any_of|.any()|
+|std::all_of|.all()|
+|std::count|.count()|
+|std::accumulate|.fold()|
+|std::min_element|.min()|
+|std::max_element|.max()|
+|std::unique|.dedup()|
+
+
 ## 常用模式建议
 
 - C++：排序去重用 `sort + unique + erase`；批量构造用 `reserve`；算法配合插入迭代器生成输出
