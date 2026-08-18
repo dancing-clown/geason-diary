@@ -92,3 +92,60 @@ fn main() {
 5. 访问`s`的字段`union`。
 
 需要注意的是，`unsafe` 不会关闭借用检查或禁用Rust的任何其他安全检查。
+
+之前遇到的最多FFI相关的字符串处理，因为C字符串存在内嵌`\0`，`strlen`才能截断。我们目前暂时不需要cstr的视图；通常得到的字符串是需要在rust系统内部处理的；
+
+```rust
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+
+extern "C" {
+    fn c_print(s: *const c_char);
+}
+
+fn demo() {
+    let owned = CString::new("hello").unwrap();
+    // as_ptr() 零开销，直接拿到裸指针传给C
+    unsafe { c_print(owned.as_ptr()) };
+
+    // 假设C函数返回一个字符串指针（内存归属C库）
+    let ptr: *const c_char = unsafe { get_c_string() };
+    // 零开销包装成借用视图，不拷贝内存
+    let cstr = unsafe { CStr::from_ptr(ptr) };
+}
+```
+
+### 同步异步通信
+
+  Tokio 行情任务
+        |
+        |  async mpsc::Sender::send().await
+        v
+  同步计算线程
+        |
+        |  tokio mpsc::Sender::blocking_send(...)
+        v
+  Tokio WS 下单任务
+        |
+        |  await websocket.send(...)
+        v
+
+行情任务
+
+```rust
+let (market_tx, market_rx) = tokio::sync::mpsc::mpsc::channel(1024);
+market_tx.send(snapshot).await?;
+```
+
+计算侧
+```rust
+let snapshot = market_rx.blocking_recv();
+let (order_tx, order_rx) = tokio::sync::mpsc::channel(1024);
+order_tx.blocking_send(order)?;
+```
+下单侧
+```rust
+while let Some(order) = order_rx.recv().await {
+    // await websocket 下单
+}
+```

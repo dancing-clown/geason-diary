@@ -468,21 +468,14 @@ public:
 
 Q: 在交易系统中，会有实时将若干个trade聚合成一个tick的需求。在这个问题背景下，希望按照每kTickWindowSizeMs的trades进行聚合，Trade可能因为网络延迟为乱序，但是延迟不高。希望publish出去的tick的延迟尽量低且严格递增。
 
-A: 简单考虑，因为trades存在乱序，所以需要考虑我们的队列最多等待多少时间
-
 ```C++
 #include <iostream>
 #include <string>
 using namespace std;
-
 struct Trade {
     double volume, price; // 成交量和成交价格
     size_t update_time; // 成交时间，单位为毫秒
     std::string code; // 合约代码
-    // 自定义排序函数
-    bool operator<(const Trade& other) const {
-        return update_time > other.update_time;
-    }
 };
 
 // 对于每个code，将一段时间内的若干个trades合成一个tick并publish
@@ -499,36 +492,7 @@ public:
     static const size_t kTickWindowSizeMs;
     void NotifyTradeEvent(const Trade& trade)
     {
-        if (pqMaps.find(trade.code) == pqMaps.end()) {
-            pqMaps[trade.code].push(trade);
-        } else {
-            auto &pq = pqMaps.at(trade.code);
-            // 如果比第一个到的都早，直接丢弃
-            if (trade.update_time < pq.top().update_time) {
-                continue;
-            } else {
-                if (trade.update_time - pq.top().update_time > kTickWindowSizeMs) {
-                    const auto &tick = GenerateTick(trade.code);
-                    PublishTick(tick);
-                }
-                pq.push(trade);
-            }
-        }
-    }
-
-    Tick GenerateTick(const std::string &code) {
-        auto& pq = pqMaps[code];
-        Tick res{.min_price= DOUBLE_MAX};
-        while (!pq.empty()) {
-            auto &trade = pq.top();
-            res.volume += trade.volume;
-            res.max_price = max(trade.price, res.max_price);
-            res.min_price = min(trade.price, res.min_price);
-            res.update_time = trade.update_time;
-            res.last_price = trade.price;
-            pq.pop();
-        }
-        return res;
+        // TODO
     }
 
     // 已实现。希望pulish tick的时间和tick中update_time的延迟尽量小且严格递增
@@ -537,10 +501,248 @@ private:
     std::unordered_map<std::string, std::priority_queue<Trade>> pqMaps;
 };
 
-int main()
-{
-    return 0;
-}
+```
+
+A: 简单考虑，因为trades存在乱序，所以需要考虑我们的队列最多等待多少时间
+
+```C++
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <iostream>
+#include <string>
+#include <unordered_map>
+
+struct Trade {
+    double volume{0.0};
+    double price{0.0};
+    size_t update_time{0};  // 毫秒
+    std::string code;
+};
+
+struct Tick {
+    double volume{0.0};
+    double max_price{0.0};
+    double min_price{0.0};
+    double first_price{0.0};
+    double last_price{0.0};
+    size_t update_time{0};  // 最后一笔 Trade 的 update_time
+    std::string code;
+};
+
+class GenerateTickFromTrade {
+public:
+    // 示例值，按实际业务配置修改。
+    static constexpr size_t kTickWindowSizeMs = 100;
+
+    // Trade 事件和 NotifyTimerEvent 必须在同一个事件线程中串行调用。
+    void NotifyTradeEvent(const Trade& trade) {
+        const size_t window_id = GetWindowId(trade.update_time);
+        const size_t window_end = GetWindowEnd(window_id);
+
+        // 全局 timer 已经越过该窗口，Trade 到达得太晚。
+        if (window_end <= timer_now_ms_) {
+            return;
+        }
+
+        CodeState& state = states_[trade.code];
+
+        // 该 code 对应的窗口已经发布。
+        if (state.has_finalized_window &&
+            window_id <= state.last_finalized_window_id) {
+            return;
+        }
+
+        if (!state.active) {
+            // timer 已经关闭上一窗口，下一窗口第一笔 Trade 到达。
+            StartWindow(state, trade.code, window_id);
+        } else if (window_id < state.window_id) {
+            // 当前已经进入更新的窗口，该 Trade 属于旧窗口。
+            return;
+        } else if (window_id > state.window_id) {
+            // 下一段时间的 Trade 比 timer 先到：
+            // 先发布当前窗口，再开始 Trade 所属的新窗口。
+            PublishCurrentWindow(state, window_id - 1);
+            StartWindow(state, trade.code, window_id);
+        }
+
+        AccumulateTrade(state, trade);
+    }
+
+    // 由程序启动时创建的全局周期 timer 调用。
+    // 例如每 1ms 调用一次。
+    void NotifyTimerEvent(size_t now_ms) {
+        if (now_ms <= timer_now_ms_) {
+            return;
+        }
+
+        timer_now_ms_ = now_ms;
+
+        for (auto& [code, state] : states_) {
+            (void)code;
+
+            if (!state.active) {
+                continue;
+            }
+
+            const size_t window_end = GetWindowEnd(state.window_id);
+            if (window_end > now_ms) {
+                continue;
+            }
+
+            // now_ms / W 是当前尚未结束的窗口；
+            // 它之前的所有窗口都已经结束。
+            const size_t finalized_through =
+                now_ms / kTickWindowSizeMs - 1;
+
+            PublishCurrentWindow(state, finalized_through);
+        }
+    }
+
+    // 题目说明该函数已经实现。
+    void PublishTick(const Tick& tick) {}
+
+   private:
+    struct CodeState {
+      // 当前是否存在正在聚合的窗口。
+      bool active{false};
+
+      // 当前固定时间窗口编号。
+      size_t window_id{0};
+
+      // 当前窗口的增量聚合结果。
+      size_t trade_count{0};
+      Tick tick{};
+
+      // first_price 对应的最小 Trade.update_time。
+      size_t first_trade_time{0};
+
+      // 防止 timer 关闭窗口后，迟到 Trade 重新创建旧窗口。
+      bool has_finalized_window{false};
+      size_t last_finalized_window_id{0};
+
+      // 最终防线：保证每个 code 的 Tick.update_time 严格递增。
+      bool has_published_tick{false};
+      size_t last_published_update_time{0};
+    };
+
+    static size_t GetWindowId(size_t update_time) {
+      return update_time / kTickWindowSizeMs;
+    }
+
+    static size_t GetWindowStart(size_t window_id) {
+      return window_id * kTickWindowSizeMs;
+    }
+
+    static size_t GetWindowEnd(size_t window_id) {
+      return (window_id + 1) * kTickWindowSizeMs;
+    }
+
+    static void StartWindow(CodeState& state, const std::string& code, size_t window_id) {
+        state.active = true;
+        state.window_id = window_id;
+        state.trade_count = 0;
+
+        state.tick = Tick{};
+        state.tick.code = code;
+    }
+
+    static void AccumulateTrade(CodeState& state, const Trade& trade) {
+        assert(state.active);
+        assert(GetWindowId(trade.update_time) == state.window_id);
+        
+        if (state.trade_count == 0) {
+            state.tick.volume = trade.volume;
+            state.tick.max_price = trade.price;
+            state.tick.min_price = trade.price;
+            state.tick.first_price = trade.price;
+            state.tick.last_price = trade.price;
+            state.tick.update_time = trade.update_time;
+
+            state.first_trade_time = trade.update_time;
+            state.trade_count = 1;
+            return;
+        }
+
+        state.tick.volume += trade.volume;
+        state.tick.max_price =
+            std::max(state.tick.max_price, trade.price);
+        state.tick.min_price =
+            std::min(state.tick.min_price, trade.price);
+
+        // 按事件时间寻找窗口内第一笔 Trade。
+        // 因此 1008 先到、1007 后到时，first_price 仍然正确。
+        if (trade.update_time < state.first_trade_time) {
+            state.first_trade_time = trade.update_time;
+            state.tick.first_price = trade.price;
+        }
+
+        // 按事件时间寻找窗口内最后一笔 Trade。
+        //
+        // update_time 相同时，题目没有 exchange sequence，
+        // 这里使用后到达的 Trade 作为 last。
+        if (trade.update_time >= state.tick.update_time) {
+            state.tick.update_time = trade.update_time;
+            state.tick.last_price = trade.price;
+        }
+
+        ++state.trade_count;
+    }
+
+    void PublishCurrentWindow(CodeState& state, size_t finalized_through_window_id) {
+        if (!state.active) {
+            return;
+        }
+
+        Tick tick = state.tick;
+
+        // 必须在调用 PublishTick 前完成状态迁移。
+        // 即使 PublishTick 内部触发其他逻辑，也不会重复发布该窗口。
+        state.active = false;
+        state.trade_count = 0;
+
+        if (!state.has_finalized_window || finalized_through_window_id > state.last_finalized_window_id) {
+            state.last_finalized_window_id =
+                finalized_through_window_id;
+        }
+        state.has_finalized_window = true;
+
+        // 窗口非空才会 active，因此正常情况下 tick 一定有效。
+        //
+        // 固定窗口按 window_id 递增发布时，这个条件天然成立；
+        // 保留检查作为严格递增的最终保护。
+        if (state.has_published_tick && tick.update_time <= state.last_published_update_time) {
+            return;
+        }
+
+        state.has_published_tick = true;
+        state.last_published_update_time = tick.update_time;
+
+        PublishTick(tick);
+    }
+private:
+    // 最近一次周期 timer 提供的本地时间。
+    size_t timer_now_ms_{0};
+    std::unordered_map<std::string, CodeState> states_;
+};
+// timer 在服务启动时创建一次。标准库没有事件循环，这里用伪代码表示接入方式：
+
+GenerateTickFromTrade generator;
+
+// 程序初始化时创建一次周期 timer。
+event_loop.AddPeriodicTimer(
+    std::chrono::milliseconds(1),
+    [&generator] { generator.NotifyTimerEvent(CurrentEpochMilliseconds()); }
+);
+
+// Trade 到达时投递到同一个 event_loop。
+market_data_client.OnTrade(
+    [&event_loop, &generator](Trade trade) {
+        event_loop.Post(
+            [&generator, trade = std::move(trade)] {
+                generator.NotifyTradeEvent(trade);
+        });
+});
 ```
 
 ## 一、对象模型与多态
